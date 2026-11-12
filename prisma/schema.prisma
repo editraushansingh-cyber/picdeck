@@ -1,0 +1,140 @@
+// PicDeck — Photo Selection module
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  phone           String    @unique
+  passwordHash    String
+  profession      String    @default("photographer")
+  countryCode     String    @default("+91")
+  city            String?
+  pinCode         String?
+  address         String?
+  referralCode    String    @unique
+  referredById    String?
+  referredBy      User?     @relation("Referrals", fields: [referredById], references: [id])
+  referrals       User[]    @relation("Referrals")
+  phoneVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+
+  events        Event[]
+  subscriptions Subscription[]
+
+  @@index([referredById])
+}
+
+model OtpCode {
+  id        String    @id @default(cuid())
+  phone     String
+  codeHash  String
+  purpose   String    @default("register")
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([phone, purpose, createdAt])
+}
+
+model Event {
+  id                        String   @id @default(cuid())
+  userId                    String
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title                     String
+  eventDate                 DateTime?
+  clientName                String?
+  clientPhone               String?
+  note                      String?
+  galleryCode               String   @unique
+  selectionLimit            Int?
+  downloadEnabled           Boolean  @default(true)
+  originalDownloadEnabled   Boolean  @default(false)
+  status                    String   @default("ACTIVE")
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  photos     Photo[]
+  selections Selection[]
+
+  @@index([userId, createdAt])
+}
+
+model Photo {
+  id         String   @id @default(cuid())
+  eventId    String
+  event      Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  filename   String
+  originalName String
+  mimeType   String
+  sizeBytes  Int
+  width      Int?
+  height     Int?
+  thumbPath  String?
+  previewPath String?
+  isRaw      Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  selection Selection?
+
+  @@index([eventId, createdAt])
+}
+
+model Selection {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  photoId     String   @unique
+  photo       Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  clientName  String?
+  clientPhone String?
+  createdAt   DateTime @default(now())
+
+  @@index([eventId])
+}
+
+model Plan {
+  id           String  @id @default(cuid())
+  slug         String  @unique
+  name         String
+  product      String  @default("photo-selection")
+  priceInr     Int
+  periodMonths Int
+  highlight    String?
+  features     String  @default("[]") // JSON array
+  sortOrder    Int     @default(0)
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id])
+  startsAt  DateTime @default(now())
+  endsAt    DateTime
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+
+  @@index([userId, status])
+}
+
+model GalleryAttempt {
+  id        String   @id @default(cuid())
+  eventId   String
+  ip        String
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([eventId, ip, createdAt])
+}
