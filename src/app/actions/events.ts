@@ -133,7 +133,7 @@ export async function deletePhoto(photoId: string) {
   });
   if (!photo) return { ok: false as const, message: "Photo not found" };
   await prisma.photo.delete({ where: { id: photoId } });
-  await deletePhotoFiles(photo.eventId, photo.filename);
+  await deletePhotoFiles(photo.eventId, photo.filename, photo.localOriginalPath);
   revalidatePath(`/dashboard/events/${photo.eventId}`);
   return { ok: true as const };
 }

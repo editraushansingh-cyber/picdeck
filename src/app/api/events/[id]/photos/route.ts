@@ -5,7 +5,7 @@ import {
   storePhoto,
   MAX_BATCH,
   extractEmbeddedJpeg,
-  localOriginalSink,
+  storedOriginalSink,
   type OriginalSink,
 } from "@/lib/storage";
 import { descriptorFor } from "@/lib/face";
@@ -27,7 +27,7 @@ export const maxDuration = 300;
  * Thumbnails and watermarked previews always stay on the app server.
  */
 async function originalSinkFor(userId: string, eventId: string, title: string): Promise<OriginalSink> {
-  const local = localOriginalSink(eventId);
+  const local = storedOriginalSink(eventId);
   const link = await driveConnected(userId);
   if (!link || link.status !== "CONNECTED") return local;
 

@@ -23,7 +23,7 @@ export type OriginalSink = {
   save(name: string, buffer: Buffer, mimeType: string): Promise<SinkResult>;
 };
 
-/** Local disk sink for originals when the studio has no Drive connected. */
+/** Local disk sink for originals when the studio has no Drive connected (dev). */
 export function localOriginalSink(eventId: string): OriginalSink {
   return {
     async save(name, buffer) {
@@ -36,6 +36,24 @@ export function localOriginalSink(eventId: string): OriginalSink {
         fileId: null,
         localPath: path.posix.join("events", eventId, "orig", stored),
       };
+    },
+  };
+}
+
+/**
+ * Original sink that survives a stateless server. On the local backend this is
+ * plain disk; on Supabase it stores the untouched original privately in the
+ * `assets` bucket under `originals/<eventId>/...`, so a studio that has not
+ * connected Google Drive still keeps its files (Vercel's disk is ephemeral).
+ */
+export function storedOriginalSink(eventId: string): OriginalSink {
+  if (storeBackend() === "local") return localOriginalSink(eventId);
+  return {
+    async save(name, buffer) {
+      const ext = path.extname(name).toLowerCase() || ".bin";
+      const key = path.posix.join("originals", eventId, `${crypto.randomUUID()}${ext}`);
+      await storeWrite(key, buffer, "application/octet-stream");
+      return { store: "LOCAL", fileId: null, localPath: key };
     },
   };
 }
@@ -277,14 +295,24 @@ export async function deleteEventFiles(eventId: string) {
 }
 
 /** Removes one photo's original, thumbnail and preview (any backend). */
-export async function deletePhotoFiles(eventId: string, filename: string) {
+export async function deletePhotoFiles(
+  eventId: string,
+  filename: string,
+  localOriginalPath?: string | null,
+) {
+  const dir = path.join(ROOT, "events", eventId);
+  const localOriginal = dir + path.sep + "orig" + path.sep + filename;
+  const localThumb = dir + path.sep + "thumb" + path.sep + filename + ".webp";
+  const localPreview = dir + path.sep + "preview" + path.sep + filename + ".webp";
   await Promise.all([
-    fs.rm(path.join(ROOT, "events", eventId, "orig", filename), { force: true }),
-    // Thumbnails/previews live in the object store; the local-path cleanup above
-    // is the no-op in production where the store backend is not local disk.
+    fs.rm(localOriginal, { force: true }),
+    fs.rm(localThumb, { force: true }),
+    fs.rm(localPreview, { force: true }),
     storeDeleteMany([
       path.posix.join("photos", eventId, "thumb", `${filename}.webp`),
       path.posix.join("photos", eventId, "preview", `${filename}.webp`),
+      // Object-store original (Supabase backend stores it under originals/...).
+      ...(localOriginalPath ? [localOriginalPath] : []),
     ]),
   ]);
 }
