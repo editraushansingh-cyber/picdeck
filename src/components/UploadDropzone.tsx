@@ -2,17 +2,90 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
-const BATCH_SIZE = 20;
 const MAX_MB = 25;
 
-export function UploadDropzone({ eventId }: { eventId: string }) {
+type Props = {
+  eventId: string;
+  /** True when the studio has a working Google Drive connection. */
+  driveConnected: boolean;
+  /** True when uploads must go to Drive (production). Dev keeps the proxy path. */
+  driveRequired: boolean;
+};
+
+export function UploadDropzone({ eventId, driveConnected, driveRequired }: Props) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [errors, setErrors] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+
+  /** Browser → Google Drive directly, so Vercel's 4.5 MB body limit never applies. */
+  async function uploadToDrive(file: File): Promise<string | null> {
+    const sessionResponse = await fetch(`/api/events/${eventId}/photos/drive-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, size: file.size, type: file.type }),
+    });
+    const session = (await sessionResponse.json()) as {
+      uploadUrl?: string;
+      error?: string;
+      code?: string;
+    };
+    if (!sessionResponse.ok || !session.uploadUrl) {
+      return session.error ?? "Could not start the Drive upload";
+    }
+
+    const put = await fetch(session.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!put.ok) {
+      return `${file.name}: Google Drive rejected the upload (${put.status})`;
+    }
+    const uploaded = (await put.json()) as { id?: string };
+    if (!uploaded.id) return `${file.name}: Drive did not return a file id`;
+
+    const register = await fetch(`/api/events/${eventId}/photos/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        driveFileId: uploaded.id,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      }),
+    });
+    const registered = (await register.json()) as { error?: string };
+    if (!register.ok) return registered.error ?? `${file.name}: could not be processed`;
+    return null;
+  }
+
+  /** Dev fallback: the server stores the photo (small files only). */
+  async function uploadThroughProxy(files: File[]): Promise<string[]> {
+    const collected: string[] = [];
+    for (let index = 0; index < files.length; index += 20) {
+      const batch = files.slice(index, index + 20);
+      const body = new FormData();
+      for (const file of batch) body.append("files", file);
+      try {
+        const response = await fetch(`/api/events/${eventId}/photos`, { method: "POST", body });
+        const data = (await response.json()) as {
+          failed?: { reason: string }[];
+          error?: string;
+        };
+        if (!response.ok) collected.push(data.error ?? "Upload failed");
+        else for (const failure of data.failed ?? []) collected.push(failure.reason);
+      } catch {
+        collected.push("Network error while uploading a batch");
+      }
+      setProgress((current) => ({ ...current, done: Math.min(index + 20, files.length) }));
+    }
+    return collected;
+  }
 
   async function upload(files: File[]) {
     if (files.length === 0) return;
@@ -21,29 +94,19 @@ export function UploadDropzone({ eventId }: { eventId: string }) {
     setProgress({ done: 0, total: files.length });
 
     const collected: string[] = [];
-    for (let index = 0; index < files.length; index += BATCH_SIZE) {
-      const batch = files.slice(index, index + BATCH_SIZE);
-      const body = new FormData();
-      for (const file of batch) body.append("files", file);
-      try {
-        const response = await fetch(`/api/events/${eventId}/photos`, {
-          method: "POST",
-          body,
-        });
-        const data = (await response.json()) as {
-          stored?: number;
-          failed?: { name: string; reason: string }[];
-          error?: string;
-        };
-        if (!response.ok) {
-          collected.push(data.error ?? "Upload failed");
-        } else {
-          for (const failure of data.failed ?? []) collected.push(failure.reason);
+    if (driveConnected) {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        try {
+          const error = await uploadToDrive(file);
+          if (error) collected.push(error);
+        } catch {
+          collected.push(`${file.name}: network error — please retry`);
         }
-        setProgress({ done: Math.min(index + BATCH_SIZE, files.length), total: files.length });
-      } catch {
-        collected.push("Network error while uploading a batch");
+        setProgress({ done: index + 1, total: files.length });
       }
+    } else {
+      collected.push(...(await uploadThroughProxy(files)));
     }
 
     setErrors(collected);
@@ -62,18 +125,20 @@ export function UploadDropzone({ eventId }: { eventId: string }) {
     await upload(files.filter((file) => file.size <= MAX_MB * 1024 * 1024));
   }
 
+  const needsDrive = driveRequired && !driveConnected;
+
   return (
     <div>
       <div
         onDragOver={(event) => {
           event.preventDefault();
-          if (!busy) setDragging(true);
+          if (!busy && !needsDrive) setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          if (!busy) void onFiles(event.dataTransfer.files);
+          if (!busy && !needsDrive) void onFiles(event.dataTransfer.files);
         }}
         className={`rounded-xl border-2 border-dashed p-8 text-center transition ${
           dragging ? "border-brand bg-brand-soft/30" : "border-line bg-white"
@@ -88,21 +153,41 @@ export function UploadDropzone({ eventId }: { eventId: string }) {
           id="photo-upload"
           onChange={(event) => void onFiles(event.target.files)}
         />
-        <p className="text-sm font-medium">
-          {busy ? "Uploading…" : "Drop photos here, or choose files"}
-        </p>
-        <p className="mt-1.5 text-xs text-muted">
-          JPEG, PNG, WebP, HEIC, TIFF and common RAW files. Up to {MAX_MB} MB each,{" "}
-          {BATCH_SIZE} at a time.
-        </p>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => inputRef.current?.click()}
-          className="mt-4 rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-ink/90 disabled:opacity-50"
-        >
-          {busy ? "Please wait…" : "Choose photos"}
-        </button>
+
+        {needsDrive ? (
+          <>
+            <p className="text-sm font-medium">Connect Google Drive to upload photos</p>
+            <p className="mt-1.5 text-xs text-muted">
+              Originals, thumbnails and previews are stored in your own Drive. Nothing is
+              copied to PicDeck storage.
+            </p>
+            <Link
+              href="/dashboard/settings"
+              className="mt-4 inline-block rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-ink/90"
+            >
+              Go to Settings
+            </Link>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-medium">
+              {busy ? "Uploading…" : "Drop photos here, or choose files"}
+            </p>
+            <p className="mt-1.5 text-xs text-muted">
+              JPEG, PNG, WebP, HEIC, TIFF and common RAW files. Up to {MAX_MB} MB each.{" "}
+              {driveConnected ? "Saved to your Google Drive." : ""}
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => inputRef.current?.click()}
+              className="mt-4 rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-ink/90 disabled:opacity-50"
+            >
+              {busy ? "Please wait…" : "Choose photos"}
+            </button>
+          </>
+        )}
+
         {busy && progress.total > 0 && (
           <div className="mx-auto mt-4 max-w-xs">
             <div className="h-1.5 overflow-hidden rounded-full bg-surface">
@@ -112,7 +197,7 @@ export function UploadDropzone({ eventId }: { eventId: string }) {
               />
             </div>
             <p className="mt-1.5 text-xs text-muted">
-              {Math.min(progress.done, progress.total)} of {progress.total} processed
+              {Math.min(progress.done, progress.total)} of {progress.total} uploaded
             </p>
           </div>
         )}

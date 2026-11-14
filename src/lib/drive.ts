@@ -231,6 +231,27 @@ export async function ensureFolderFor(userId: string, parentId: string | null, n
   return (created as { id: string }).id;
 }
 
+/**
+ * Resolves (and caches on the Event row) the Drive folder for one event.
+ * Creates `PicDeck / <event title>` lazily.
+ */
+export async function eventDriveFolder(
+  userId: string,
+  event: { id: string; title: string; driveFolderId: string | null },
+): Promise<string> {
+  if (event.driveFolderId) return event.driveFolderId;
+  const link = await prisma.driveLink.findUnique({ where: { userId }, select: { folderId: true } });
+  const root = link?.folderId ?? (await ensureFolderFor(userId, null, ROOT_FOLDER_NAME));
+  const folderId = await ensureFolderFor(userId, root, event.title);
+  await prisma.event.update({ where: { id: event.id }, data: { driveFolderId: folderId } });
+  return folderId;
+}
+
+/** Folder that holds the generated thumbnails/previews for an event. */
+export async function drivePreviewFolder(userId: string, eventFolderId: string) {
+  return ensureFolderFor(userId, eventFolderId, "_previews");
+}
+
 /** Uploads one buffer into a folder. Returns the Drive file id. */
 export async function uploadToDrive(
   userId: string,
@@ -265,6 +286,56 @@ export async function uploadToDrive(
   }
   const json = (await response.json()) as { id: string };
   return json.id;
+}
+
+/**
+ * Starts a resumable upload and hands the session URL to the browser.
+ *
+ * The browser PUTs the file bytes straight to Google, so uploads never pass
+ * through Vercel (which rejects request bodies over ~4.5 MB). The session URL
+ * embeds its own upload token; it needs no Authorization header.
+ */
+export async function initiateResumableUpload(
+  userId: string,
+  parentId: string,
+  name: string,
+  mimeType: string,
+  size: number,
+): Promise<{ uploadUrl: string }> {
+  const token = await driveToken(userId);
+  const response = await fetch(`${UPLOAD_API}/files?uploadType=resumable&fields=id,name,size`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=UTF-8",
+      "X-Upload-Content-Type": mimeType || "application/octet-stream",
+      "X-Upload-Content-Length": String(size),
+    },
+    body: JSON.stringify({ name, parents: [parentId] }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Drive upload session ${response.status}: ${text.slice(0, 120)}`);
+  }
+  const uploadUrl = response.headers.get("location");
+  if (!uploadUrl) throw new Error("Drive did not return an upload session URL");
+  return { uploadUrl };
+}
+
+/** Reads basic metadata for a file the studio just uploaded. */
+export async function driveFileMeta(userId: string, fileId: string) {
+  const token = await driveToken(userId);
+  return (await driveFetch(
+    token,
+    `/files/${encodeURIComponent(fileId)}?fields=id,name,size,mimeType,parents,trashed`,
+  )) as {
+    id: string;
+    name: string;
+    size?: string;
+    mimeType?: string;
+    parents?: string[];
+    trashed?: boolean;
+  };
 }
 
 /** Streams a file back from the studio's Drive (used for original downloads). */

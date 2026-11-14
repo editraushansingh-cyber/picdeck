@@ -38,11 +38,22 @@ export async function GET(request: Request, context: RouteContext<"/api/photos/[
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const fromDrive = kind === "original" && photo.originalStore === "DRIVE" && photo.driveFileId;
+  // Drive-only mode serves derivatives from Drive too; the object store is the
+  // fallback for photos uploaded before a studio connected Drive.
+  const driveId =
+    kind === "thumb"
+      ? photo.thumbDriveFileId
+      : kind === "preview"
+        ? photo.previewDriveFileId
+        : kind === "original" && photo.originalStore === "DRIVE"
+          ? photo.driveFileId
+          : null;
+  const fromDrive = !!driveId;
+
   let relative: string | null = null;
   if (kind === "thumb") relative = photo.thumbPath;
   else if (kind === "preview") relative = photo.previewPath;
-  else if (kind === "original") relative = fromDrive ? "drive" : photo.localOriginalPath;
+  else if (kind === "original") relative = photo.localOriginalPath;
 
   // Clients may always *view* previews; downloads follow the event settings.
   const wantsDownload = url.searchParams.get("download") === "1";
@@ -54,15 +65,21 @@ export async function GET(request: Request, context: RouteContext<"/api/photos/[
   if (kind !== "original" && wantsDownload && !isOwner && !photo.event.downloadEnabled) {
     return NextResponse.json({ error: "Downloads are disabled" }, { status: 403 });
   }
-  if (!relative) return NextResponse.json({ error: "No preview available" }, { status: 404 });
+  if (!fromDrive && !relative) {
+    return NextResponse.json({ error: "No preview available" }, { status: 404 });
+  }
 
   try {
-    // Originals may live in the studio's Google Drive; derivatives come from
-    // the object store (local disk in dev, Supabase Storage in production).
+    // Originals and (in Drive-only mode) derivatives come from the studio's
+    // Google Drive; older photos still read from the object store.
     const file = fromDrive
-      ? await downloadFromDrive(photo.event.userId, photo.driveFileId as string)
-      : await readStored(relative);
-    const extension = relative.includes(".webp") ? ".webp" : relative.slice(relative.lastIndexOf("."));
+      ? await downloadFromDrive(photo.event.userId, driveId as string)
+      : await readStored(relative as string);
+    const extension = fromDrive
+      ? ".webp"
+      : relative!.includes(".webp")
+        ? ".webp"
+        : relative!.slice(relative!.lastIndexOf("."));
     const type =
       kind === "original"
         ? photo.mimeType === "application/octet-stream"
@@ -77,7 +94,11 @@ export async function GET(request: Request, context: RouteContext<"/api/photos/[
     return new NextResponse(new Uint8Array(file), {
       headers: {
         "Content-Type": type,
-        "Cache-Control": isOwner ? "private, max-age=3600" : "private, max-age=300",
+        "Cache-Control": isOwner
+          ? "private, max-age=86400"
+          : kind === "original"
+            ? "private, max-age=300"
+            : "private, max-age=3600",
         ...(kind === "original" || wantsDownload
           ? {
               "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`,

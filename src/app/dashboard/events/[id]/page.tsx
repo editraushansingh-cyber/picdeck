@@ -46,6 +46,13 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
     where: { photo: { eventId: event.id } },
   });
 
+  const driveLink = await prisma.driveLink.findUnique({
+    where: { userId: user.id },
+    select: { status: true },
+  });
+  const driveReady = driveLink?.status === "CONNECTED";
+  const driveRequired = process.env.STORAGE_PROVIDER === "supabase";
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const galleryUrl = `${appUrl}/g/${event.galleryCode}`;
   const qrDataUrl = await QRCode.toDataURL(galleryUrl, { margin: 1, width: 256 });
@@ -107,7 +114,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
         <div className="space-y-6">
           <section>
             <h2 className="mb-3 font-medium">Add photos</h2>
-            <UploadDropzone eventId={event.id} />
+            <UploadDropzone eventId={event.id} driveConnected={driveReady} driveRequired={driveRequired} />
           </section>
 
           <section>

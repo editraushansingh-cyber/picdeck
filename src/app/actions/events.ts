@@ -115,10 +115,12 @@ export async function deleteEvent(eventId: string) {
   // leave client photos behind in a personal Drive.
   const drivePhotos = await prisma.photo.findMany({
     where: { eventId, originalStore: "DRIVE", driveFileId: { not: null } },
-    select: { driveFileId: true },
+    select: { driveFileId: true, thumbDriveFileId: true, previewDriveFileId: true },
   });
   for (const photo of drivePhotos) {
-    if (photo.driveFileId) await deleteFromDrive(user.id, photo.driveFileId);
+    for (const fileId of [photo.driveFileId, photo.thumbDriveFileId, photo.previewDriveFileId]) {
+      if (fileId) await deleteFromDrive(user.id, fileId);
+    }
   }
   await prisma.event.delete({ where: { id: eventId } });
   await deleteEventFiles(eventId);
@@ -134,6 +136,12 @@ export async function deletePhoto(photoId: string) {
   if (!photo) return { ok: false as const, message: "Photo not found" };
   await prisma.photo.delete({ where: { id: photoId } });
   await deletePhotoFiles(photo.eventId, photo.filename, photo.localOriginalPath);
+  // Drive-only mode: remove the original and its derivatives from the studio's Drive.
+  if (photo.originalStore === "DRIVE") {
+    for (const fileId of [photo.driveFileId, photo.thumbDriveFileId, photo.previewDriveFileId]) {
+      if (fileId) await deleteFromDrive(user.id, fileId);
+    }
+  }
   revalidatePath(`/dashboard/events/${photo.eventId}`);
   return { ok: true as const };
 }

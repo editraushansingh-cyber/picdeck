@@ -142,6 +142,9 @@ model Photo {
   originalStore String @default("LOCAL")
   /** Google Drive file id when originalStore = DRIVE. */
   driveFileId   String?
+  /** Drive file ids for the generated thumbnail/preview (Drive-only mode). */
+  thumbDriveFileId   String?
+  previewDriveFileId String?
   /** Google Drive folder id for this event (created lazily). */
   driveFolderId String?
   /** Relative path of a locally stored original (null when it lives in Drive). */

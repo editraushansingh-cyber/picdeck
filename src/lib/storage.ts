@@ -160,6 +160,81 @@ async function watermarkOverlay(width: number, options: WatermarkOptions) {
   return layers;
 }
 
+export type DerivedImages = {
+  width: number | null;
+  height: number | null;
+  thumb: Buffer | null;
+  preview: Buffer | null;
+};
+
+/**
+ * Builds the client-facing derivatives from an original buffer.
+ * Returns the bytes so a caller can put them wherever it wants (object store
+ * for the local backend, the studio's Drive in Drive-only mode).
+ */
+export async function deriveImages(
+  buffer: Buffer,
+  raw: boolean,
+  watermark: WatermarkOptions = {},
+): Promise<DerivedImages> {
+  let source: Buffer | null = buffer;
+  if (raw) source = extractEmbeddedJpeg(buffer);
+  if (!source) return { width: null, height: null, thumb: null, preview: null };
+
+  try {
+    const meta = await sharp(source).metadata();
+    const width = meta.width ?? null;
+    const height = meta.height ?? null;
+
+    const thumbBuffer = await sharp(source)
+      .rotate()
+      .resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 78 })
+      .toBuffer();
+
+    const preview = sharp(source)
+      .rotate()
+      .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true });
+    const resized = await preview.toBuffer({ resolveWithObject: true });
+    const layers = await watermarkOverlay(resized.info.width, watermark);
+    const finalPreview = layers.length
+      ? sharp(resized.data).composite(layers)
+      : sharp(resized.data);
+    const previewBuffer = await finalPreview.webp({ quality: 82 }).toBuffer();
+
+    return { width, height, thumb: thumbBuffer, preview: previewBuffer };
+  } catch {
+    // Broken/invalid image: keep the original, no derivatives.
+    return { width: null, height: null, thumb: null, preview: null };
+  }
+}
+
+/** Writes derivatives to the object store and returns their keys. */
+export async function buildDerivatives(
+  eventId: string,
+  filename: string,
+  buffer: Buffer,
+  raw: boolean,
+  watermark: WatermarkOptions,
+) {
+  const derived = await deriveImages(buffer, raw, watermark);
+  let thumbPath: string | null = null;
+  let previewPath: string | null = null;
+
+  if (derived.thumb) {
+    const key = path.posix.join("photos", eventId, "thumb", `${filename}.webp`);
+    await storeWrite(key, derived.thumb, "image/webp");
+    thumbPath = key;
+  }
+  if (derived.preview) {
+    const key = path.posix.join("photos", eventId, "preview", `${filename}.webp`);
+    await storeWrite(key, derived.preview, "image/webp");
+    previewPath = key;
+  }
+
+  return { width: derived.width, height: derived.height, thumbPath, previewPath };
+}
+
 /**
  * Stores an uploaded file. Raster images get webp thumbnail (480px) and
  * preview (1600px). RAW files are derived from their embedded JPEG preview.
@@ -200,54 +275,11 @@ export async function storePhoto(
   const buffer = Buffer.from(await file.arrayBuffer());
   const sink = await original.save(originalName, buffer, mimeType);
 
-  let width: number | null = null;
-  let height: number | null = null;
-  let thumbPath: string | null = null;
-  let previewPath: string | null = null;
-
-  let source: Buffer | null = buffer;
-  if (raw) {
-    source = extractEmbeddedJpeg(buffer);
-  }
-
-  if (source) {
-    try {
-      const meta = await sharp(source).metadata();
-      width = meta.width ?? null;
-      height = meta.height ?? null;
-      const thumbName = `${filename}.webp`;
-      const previewName = `${filename}.webp`;
-
-      const thumbKey = path.posix.join("photos", eventId, "thumb", thumbName);
-      const previewKey = path.posix.join("photos", eventId, "preview", previewName);
-
-      const thumbBuffer = await sharp(source)
-        .rotate()
-        .resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 78 })
-        .toBuffer();
-
-      const preview = sharp(source)
-        .rotate()
-        .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true });
-      const resized = await preview.toBuffer({ resolveWithObject: true });
-      const layers = await watermarkOverlay(resized.info.width, watermark);
-      const finalPreview = layers.length
-        ? sharp(resized.data).composite(layers)
-        : sharp(resized.data);
-      const previewBuffer = await finalPreview.webp({ quality: 82 }).toBuffer();
-
-      // Writes go through the object store; on Supabase these land in the
-      // `photos` bucket under the same key/path used on local disk.
-      await storeWrite(thumbKey, thumbBuffer, "image/webp");
-      await storeWrite(previewKey, previewBuffer, "image/webp");
-
-      thumbPath = thumbKey;
-      previewPath = previewKey;
-    } catch {
-      // Broken/invalid image: keep the original, no derivatives.
-    }
-  }
+  const derived = await buildDerivatives(eventId, filename, buffer, raw, watermark);
+  const width = derived.width;
+  const height = derived.height;
+  const thumbPath = derived.thumbPath;
+  const previewPath = derived.previewPath;
 
   // A Drive failure still leaves a local copy behind (see the upload route), so
   // record it whenever the sink wrote one.
