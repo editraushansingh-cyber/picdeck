@@ -343,7 +343,6 @@ export async function pushUploadChunk(
     method: "PUT",
     headers: {
       "Content-Type": "application/octet-stream",
-      "Content-Length": String(chunk.byteLength),
       "Content-Range": `bytes ${start}-${end}/${total}`,
     },
     body: new Blob([new Uint8Array(chunk)], { type: "application/octet-stream" }),
