@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { saveSelection } from "@/app/actions/gallery";
 import { pushLiveSelection } from "@/app/actions/live-selection";
 import { useGalleryStream } from "@/components/useGalleryStream";
@@ -25,22 +26,58 @@ export type GalleryData = {
   originalDownloadEnabled: boolean;
   photos: GalleryPhoto[];
   selectedIds: string[];
+  /** Studio display name, shown as the author of the photographer's note. */
+  studioName?: string | null;
+  /** Event date, used for the "Date" fact in the hero. */
+  eventDate?: string | null;
+  /** Cover photo id (first photo by default) for the hero image. */
+  coverPhotoId?: string | null;
 };
 
-export function GallerySelector({ gallery }: { gallery: GalleryData }) {
+type Fact = { k: string; v: string };
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "PD";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+export function GallerySelector({
+  gallery,
+  faceSearch,
+}: {
+  gallery: GalleryData;
+  /** Optional studio-plan extra (selfie search), rendered between the hero and the grid. */
+  faceSearch?: React.ReactNode;
+}) {
   const [photos, setPhotos] = useState<GalleryPhoto[]>(gallery.photos);
   const [selected, setSelected] = useState<string[]>(gallery.selectedIds);
   const [name, setName] = useState(gallery.clientName ?? "");
   const [phone, setPhone] = useState("");
-  const [preview, setPreview] = useState<GalleryPhoto | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saved, setSaved] = useState<{ count: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [filter, setFilter] = useState<"all" | "picked">("all");
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const limit = gallery.selectionLimit;
   const atLimit = limit !== null && selected.length >= limit;
+  const coverPhoto =
+    photos.find((photo) => photo.id === gallery.coverPhotoId) ?? photos[0] ?? null;
+  // The hero is large, so prefer the 1600px preview; fall back to the thumbnail.
+  const coverSrc = coverPhoto
+    ? `/api/photos/${coverPhoto.id}/file?kind=${coverPhoto.hasPreview ? "preview" : "thumb"}`
+    : null;
 
   // Live channel: the studio dashboard listens on the same stream, so it sees
   // each pick the moment it happens (CamTom's client→studio behaviour).
@@ -151,101 +188,234 @@ export function GallerySelector({ gallery }: { gallery: GalleryData }) {
     setDownloading(false);
   }
 
-  return (
-    <div className="pb-40">
-      <header className="mx-auto max-w-6xl px-5 pt-10">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted">
-          {photos.length} photos
-        </p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{gallery.title}</h1>
-        {gallery.note && <p className="mt-2 max-w-2xl text-sm text-muted">{gallery.note}</p>}
-        <p className="mt-3 text-sm text-muted">
-          Tap a photo to pick it. Tap again to remove it.
-          {limit !== null && <> You may choose up to <strong className="text-ink">{limit}</strong>.</>}
-        </p>
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
-          <span
-            aria-hidden
-            className={`inline-block size-1.5 rounded-full ${
-              liveStatus === "live"
-                ? "bg-emerald-500"
-                : liveStatus === "polling"
-                  ? "bg-amber-400"
-                  : "bg-line"
-            }`}
-          />
-          {liveStatus === "live"
-            ? "Live — your photographer sees each pick right away"
-            : liveStatus === "polling"
-              ? "Sending your picks every few seconds"
-              : "Connecting…"}
-        </p>
-      </header>
+  const shown = filter === "picked" ? photos.filter((photo) => selectedSet.has(photo.id)) : photos;
+  const studioName = gallery.studioName?.trim() || "Your photographer";
+  const eventDate = formatDate(gallery.eventDate);
 
-      {photos.length === 0 ? (
-        <div className="mx-auto mt-10 max-w-6xl px-5">
-          <div className="rounded-2xl border border-dashed border-line p-12 text-center">
-            <p className="font-medium">No photos yet</p>
-            <p className="mt-1.5 text-sm text-muted">
-              Your photographer is still uploading. Check back in a little while.
+  const facts: Fact[] = [];
+  if (eventDate) facts.push({ k: "Date", v: eventDate });
+  facts.push({ k: "Frames", v: String(photos.length) });
+  facts.push({ k: "Studio", v: studioName });
+
+  // Progress rail across the dock — fills as the client approaches the limit.
+  const progress = limit && limit > 0 ? Math.min(100, (selected.length / limit) * 100) : selected.length > 0 ? 100 : 0;
+
+  const liveLabel =
+    liveStatus === "live"
+      ? "Your photographer sees each pick as you make it"
+      : liveStatus === "polling"
+        ? "Sending your picks every few seconds"
+        : "Connecting to your photographer…";
+
+  // Lightbox navigation helpers — index based so the arrow keys can walk the
+  // same list the client is looking at.
+  const current = previewIndex === null ? null : photos[previewIndex] ?? null;
+  const stepPreview = useCallback(
+    (delta: number) => {
+      setPreviewIndex((index) => {
+        if (index === null || photos.length === 0) return index;
+        return (index + delta + photos.length) % photos.length;
+      });
+    },
+    [photos.length],
+  );
+
+  useEffect(() => {
+    if (previewIndex === null) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setPreviewIndex(null);
+      if (event.key === "ArrowRight") stepPreview(1);
+      if (event.key === "ArrowLeft") stepPreview(-1);
+    }
+    window.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [previewIndex, stepPreview]);
+
+  return (
+    <>
+      <div className="pg-wrap">
+        <header className="pg-nav">
+          <Link className="pg-brand" href="/">
+            <span className="pg-mark">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+                <rect x="3" y="5.5" width="18" height="13" rx="2.6" stroke="#c9a468" strokeWidth="1.4" />
+                <path d="m7.6 15.2 2.7-3.5 2.2 2.7 1.8-2.1 2.3 2.9" stroke="#c9a468" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="15.7" cy="9.4" r="1" fill="#c9a468" />
+              </svg>
+            </span>
+            <span className="pg-brand-name">
+              Pic<span>Deck</span>
+            </span>
+          </Link>
+          <div className="pg-nav-r">
+            <span className="pg-private">Private gallery</span>
+            <span className="pg-studio">
+              <span className="pg-av" aria-hidden>
+                {initials(studioName)}
+              </span>
+              {studioName}
+            </span>
+          </div>
+        </header>
+
+        <section className="pg-hero">
+          <div>
+            <p className="pg-eyebrow">Private collection</p>
+            <h1 className="pg-title">{gallery.title}</h1>
+            <p className="pg-lede">
+              {photos.length > 0 ? (
+                <>
+                  <em>{photos.length}</em> {photos.length === 1 ? "frame" : "frames"} from your session. Mark the
+                  ones you love — your photographer sees each pick as you make it.
+                </>
+              ) : (
+                <>Your gallery is getting ready. Photos will appear here as they land.</>
+              )}
             </p>
+            <div className="pg-hr" />
+            <div className="pg-facts">
+              {facts.map((fact) => (
+                <div className="pg-fact" key={fact.k}>
+                  <div className="k">{fact.k}</div>
+                  <div className="v">{fact.v}</div>
+                </div>
+              ))}
+            </div>
+            <div className={`pg-live${liveStatus === "connecting" ? " muted" : ""}`}>
+              <span className="pg-dot" aria-hidden />
+              {liveLabel}
+            </div>
+          </div>
+
+          {coverSrc && (
+            <div className="pg-hero-media">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={coverSrc} alt="" loading="eager" fetchPriority="high" />
+              <span className="pg-hero-cap">From your collection</span>
+            </div>
+          )}
+        </section>
+
+        {faceSearch}
+
+        {gallery.note && (
+          <div className="pg-note">
+            <span className="q" aria-hidden>
+              “
+            </span>
+            <div>
+              <p>{gallery.note}</p>
+              <div className="by">{studioName}</div>
+            </div>
+          </div>
+        )}
+
+        <div className="pg-toolbar">
+          <p className="pg-hint">
+            Tap to pick, tap again to release.
+            {limit !== null && (
+              <>
+                {" "}
+                Up to <b>{limit}</b> selections.
+              </>
+            )}
+          </p>
+          <div className="pg-chips" role="group" aria-label="Filter photos">
+            <button
+              type="button"
+              className="pg-chip"
+              aria-pressed={filter === "all"}
+              onClick={() => setFilter("all")}
+            >
+              All {photos.length}
+            </button>
+            <button
+              type="button"
+              className="pg-chip"
+              aria-pressed={filter === "picked"}
+              onClick={() => setFilter("picked")}
+              disabled={selected.length === 0}
+            >
+              Picked · {selected.length}
+            </button>
           </div>
         </div>
-      ) : (
-        <div className="mx-auto mt-6 max-w-6xl px-5">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {photos.map((photo) => {
-              const isSelected = selectedSet.has(photo.id);
+
+        {photos.length === 0 ? (
+          <div className="pg-empty">
+            <p>No photos yet</p>
+            <p>Your photographer is still uploading. Check back in a little while.</p>
+          </div>
+        ) : shown.length === 0 ? (
+          <div className="pg-empty">
+            <p>Nothing picked yet</p>
+            <p>Tap any photo below to add it to your list.</p>
+          </div>
+        ) : (
+          <div className="pg-grid">
+            {shown.map((photo) => {
+              const isPicked = selectedSet.has(photo.id);
+              const index = photos.findIndex((item) => item.id === photo.id);
               return (
-                <div
-                  key={photo.id}
-                  className={`group relative overflow-hidden rounded-xl border bg-surface ${
-                    isSelected ? "border-brand ring-2 ring-brand/30" : "border-line"
-                  }`}
-                >
+                <div key={photo.id} className={`pg-card${isPicked ? " on" : ""}`}>
                   <button
                     type="button"
                     onClick={() => toggle(photo)}
-                    className="block w-full"
-                    aria-pressed={isSelected}
-                    aria-label={`${isSelected ? "Remove" : "Select"} ${photo.originalName}`}
+                    aria-pressed={isPicked}
+                    aria-label={`${isPicked ? "Remove" : "Select"} ${photo.originalName}`}
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      width: "100%",
+                      height: "100%",
+                      zIndex: 2,
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
                   >
-                    <div className="pd-checker relative aspect-square">
-                      {photo.hasThumb ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={`/api/photos/${photo.id}/file?kind=thumb`}
-                          alt={photo.originalName}
-                          loading="lazy"
-                          className="size-full object-cover"
-                        />
-                      ) : (
-                        <div className="grid size-full place-items-center px-2 text-center">
-                          <div>
-                            <span className="block font-mono text-[10px] uppercase tracking-wider text-muted">
-                              {photo.isRaw ? "RAW" : "Preview"}
-                            </span>
-                            <span className="mt-1 block truncate text-xs text-muted">
-                              {photo.originalName}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                      <span
-                        className={`absolute left-2 top-2 grid size-6 place-items-center rounded-full text-xs font-semibold transition ${
-                          isSelected
-                            ? "bg-brand text-white"
-                            : "border border-white/70 bg-black/25 text-white opacity-0 group-hover:opacity-100"
-                        }`}
-                      >
-                        {isSelected ? "✓" : "+"}
-                      </span>
-                    </div>
+                    <span className="sr-only">
+                      {isPicked ? "Remove from my list" : "Add to my list"}
+                    </span>
                   </button>
+
+                  {photo.hasThumb ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`/api/photos/${photo.id}/file?kind=thumb`}
+                      alt={photo.originalName}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="pg-placeholder">
+                      <div>
+                        <span>{photo.isRaw ? "RAW" : "Preview"}</span>
+                        <small>{photo.originalName}</small>
+                      </div>
+                    </div>
+                  )}
+
+                  <span className="pg-tick" aria-hidden>
+                    {isPicked ? "✓" : "+"}
+                  </span>
+                  <span className="pg-flag" aria-hidden>
+                    Picked
+                  </span>
+                  <span className="pg-num" aria-hidden>
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
                   <button
                     type="button"
-                    onClick={() => setPreview(photo)}
-                    className="absolute bottom-2 right-2 rounded-md bg-black/55 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+                    onClick={() => setPreviewIndex(index)}
+                    className="pg-view"
+                    aria-label={`View ${photo.originalName} full size`}
+                    style={{ pointerEvents: "auto" }}
                   >
                     View
                   </button>
@@ -253,42 +423,48 @@ export function GallerySelector({ gallery }: { gallery: GalleryData }) {
               );
             })}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Sticky action bar */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur">
-        <div className="mx-auto max-w-6xl px-5 py-3">
-          {notice && (
-            <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              {notice}
-            </p>
+        <footer className="pg-foot">
+          {gallery.downloadEnabled && (
+            <div>
+              <a className="zip" href={`/api/events/${gallery.id}/download`}>
+                Download the whole folder (.zip)
+              </a>
+            </div>
           )}
-          {saved && (
-            <p className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              Sent. Your photographer can see {saved.count} selected{" "}
-              {saved.count === 1 ? "photo" : "photos"} now. You can still change the list and send
-              again.
-            </p>
-          )}
-          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="text-sm">
-                <span className="font-semibold">{selected.length}</span>
-                {limit !== null && <span className="text-muted"> / {limit}</span>}
-                <span className="text-muted"> selected</span>
-              </div>
-              {atLimit && (
-                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-                  Limit reached
-                </span>
-              )}
-              {gallery.downloadEnabled && selected.length > 0 && (
+          <p style={{ margin: 0 }}>
+            Your list goes straight to <b style={{ color: "#948b7d", fontWeight: 500 }}>{studioName}</b>.{" "}
+            <Link href="/">About PicDeck</Link>
+          </p>
+        </footer>
+      </div>
+
+      {/* Sticky action dock */}
+      <div className="pg-dock">
+        <div className="pg-rail" style={{ width: `${Math.max(progress, 1.5)}%` }} />
+        <div className="pg-dock-in">
+          <div className="pg-dock-count">
+            <div className="pg-count">
+              {selected.length}
+              {limit !== null && <span className="of"> / {limit}</span>}
+            </div>
+            <div className="pg-cl">{atLimit ? "Limit reached" : "Selected"}</div>
+          </div>
+
+          <div className="pg-sep" aria-hidden />
+
+          <div className="pg-dock-dl">
+            {gallery.downloadEnabled ? (
+              <>
+                <div className="pg-dl-note">
+                  {gallery.originalDownloadEnabled ? "Originals available" : "Previews available"}
+                </div>
                 <button
                   type="button"
+                  className="pg-dl"
                   onClick={downloadSelected}
-                  disabled={downloading}
-                  className="text-xs font-medium text-brand hover:underline disabled:opacity-50"
+                  disabled={downloading || selected.length === 0}
                 >
                   {downloading
                     ? "Preparing…"
@@ -296,88 +472,102 @@ export function GallerySelector({ gallery }: { gallery: GalleryData }) {
                       ? "Download originals"
                       : "Download previews"}
                 </button>
-              )}
-            </div>
-            <div className="flex flex-1 flex-col gap-2 sm:max-w-xl sm:flex-row">
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Your name"
-                className="w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none sm:w-40"
-                aria-label="Your name"
-              />
-              <input
-                value={phone}
-                onChange={(event) => setPhone(event.target.value.replace(/[^\d+\s-]/g, ""))}
-                placeholder="Phone (optional)"
-                inputMode="tel"
-                className="w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none sm:w-40"
-                aria-label="Your phone"
-              />
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={saving || selected.length === 0}
-                className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand/90 disabled:opacity-50"
-              >
-                {saving ? "Sending…" : saved ? "Send again" : "Send my list"}
-              </button>
-            </div>
+              </>
+            ) : (
+              <div className="pg-dl-note">Downloads closed</div>
+            )}
+          </div>
+
+          <div className="pg-inputs">
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Your name"
+              className="pg-field"
+              aria-label="Your name"
+            />
+            <input
+              value={phone}
+              onChange={(event) => setPhone(event.target.value.replace(/[^\d+\s-]/g, ""))}
+              placeholder="Phone (optional)"
+              inputMode="tel"
+              className="pg-field"
+              aria-label="Your phone"
+            />
+            <button
+              type="button"
+              className="pg-send"
+              onClick={handleSubmit}
+              disabled={saving || selected.length === 0}
+            >
+              {saving ? "Sending…" : saved ? "Send again →" : "Send my list →"}
+            </button>
           </div>
         </div>
+
+        {/* Feedback stays inside the dock so it is never scrolled past. */}
+        {(notice || saved) && (
+          <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 44px 12px" }}>
+            {notice && <div className="pg-alert warn">{notice}</div>}
+            {saved && (
+              <div className="pg-alert ok">
+                Sent. Your photographer can see {saved.count} selected{" "}
+                {saved.count === 1 ? "photo" : "photos"} now. You can still change the list and send again.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Lightbox */}
-      {preview && (
-        <div
-          className="fixed inset-0 z-50 flex flex-col bg-black/90 p-4 pd-fade-in"
-          role="dialog"
-          aria-modal="true"
-          aria-label={preview.originalName}
-        >
-          <div className="flex items-center justify-between text-white/80">
-            <span className="truncate text-sm">{preview.originalName}</span>
-            <button
-              type="button"
-              onClick={() => setPreview(null)}
-              className="rounded-lg px-3 py-1.5 text-sm hover:bg-white/10"
-            >
+      {current && previewIndex !== null && (
+        <div className="pg-lb" role="dialog" aria-modal="true" aria-label={current.originalName}>
+          <div className="pg-lb-top">
+            <div className="l">
+              <span className="pg-lb-idx">
+                {String(previewIndex + 1).padStart(2, "0")} / {String(photos.length).padStart(2, "0")}
+              </span>
+              <span className="pg-lb-name">{current.originalName}</span>
+            </div>
+            <button type="button" className="pg-lb-close" onClick={() => setPreviewIndex(null)}>
               Close
             </button>
           </div>
-          <div className="flex flex-1 items-center justify-center overflow-hidden py-4">
-            {preview.hasPreview ? (
+
+          {photos.length > 1 && (
+            <>
+              <button type="button" className="pg-lb-nav l" onClick={() => stepPreview(-1)} aria-label="Previous photo">
+                ‹
+              </button>
+              <button type="button" className="pg-lb-nav r" onClick={() => stepPreview(1)} aria-label="Next photo">
+                ›
+              </button>
+            </>
+          )}
+
+          <div className="pg-lb-stage">
+            {current.hasPreview ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={`/api/photos/${preview.id}/file?kind=preview`}
-                alt={preview.originalName}
-                className="max-h-full max-w-full object-contain"
-              />
+              <img src={`/api/photos/${current.id}/file?kind=preview`} alt={current.originalName} />
             ) : (
-              <p className="max-w-sm text-center text-sm text-white/70">
-                No preview available for this file. Ask your photographer for the original after
-                your list is final.
+              <p className="pg-lb-missing">
+                No preview available for this file. Ask your photographer for the original after your
+                list is final.
               </p>
             )}
           </div>
-          <div className="flex justify-center pb-2">
+
+          <div className="pg-lb-bot">
             <button
               type="button"
-              onClick={() => {
-                toggle(preview);
-                setPreview(null);
-              }}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                selectedSet.has(preview.id)
-                  ? "bg-white/15 text-white"
-                  : "bg-brand text-white hover:bg-brand/90"
-              }`}
+              className={`pg-lb-btn ${selectedSet.has(current.id) ? "picked" : "pick"}`}
+              onClick={() => toggle(current)}
             >
-              {selectedSet.has(preview.id) ? "Remove from my list" : "Add to my list"}
+              {selectedSet.has(current.id) ? "Remove from my list" : "Add to my list"}
             </button>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
