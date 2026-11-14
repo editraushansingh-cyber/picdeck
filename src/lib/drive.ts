@@ -36,7 +36,13 @@ export function oauthConfigured() {
 }
 
 export function redirectUri() {
-  const base = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  // OAuth redirect_uri must match a Google Cloud Console entry exactly. It can
+  // differ from the public app URL so the studio-facing URL can change (e.g. a
+  // cleaner domain) without forcing every studio to reconnect Drive.
+  const base =
+    process.env.GOOGLE_DRIVE_REDIRECT_BASE ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "http://localhost:3000";
   return `${base.replace(/\/$/, "")}/api/drive/callback`;
 }
 
