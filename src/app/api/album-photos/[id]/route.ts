@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { readStored } from "@/lib/storage";
+import { downloadFromDrive } from "@/lib/drive";
 
 /**
  * Album photos are public-by-slug: the album link itself is the secret, so this
@@ -22,17 +23,27 @@ export async function GET(
   });
   if (!page) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const photo = await prisma.photo.findUnique({ where: { id } });
+  const photo = await prisma.photo.findUnique({
+    where: { id },
+    include: { event: { select: { userId: true } } },
+  });
   if (!photo) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Drive-only photos keep their derivatives in the studio's Drive; the object
+  // store is the fallback for photos uploaded before Drive was connected.
+  const driveId = photo.previewDriveFileId ?? photo.thumbDriveFileId;
   const relative = photo.previewPath ?? photo.thumbPath;
-  if (!relative) return NextResponse.json({ error: "No preview" }, { status: 404 });
+  if (!driveId && !relative) {
+    return NextResponse.json({ error: "No preview" }, { status: 404 });
+  }
 
   try {
-    const file = await readStored(relative);
+    const file = driveId
+      ? await downloadFromDrive(photo.event.userId, driveId)
+      : await readStored(relative as string);
     return new NextResponse(new Uint8Array(file), {
       headers: {
-        "Content-Type": relative.endsWith(".webp") ? "image/webp" : photo.mimeType,
+        "Content-Type": "image/webp",
         "Cache-Control": "public, max-age=3600",
       },
     });

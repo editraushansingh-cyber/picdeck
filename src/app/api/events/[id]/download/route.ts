@@ -57,8 +57,12 @@ export async function GET(
   let added = 0;
   for (const photo of photos) {
     let data: Buffer | null = null;
+    const previewDriveId = photo.previewDriveFileId ?? photo.thumbDriveFileId;
     if (useOriginals && photo.originalStore === "DRIVE" && photo.driveFileId) {
       data = await downloadFromDrive(event.userId, photo.driveFileId).catch(() => null);
+    } else if (!useOriginals && previewDriveId) {
+      // Drive-only photos keep previews in the studio's Drive.
+      data = await downloadFromDrive(event.userId, previewDriveId).catch(() => null);
     } else {
       const relative = useOriginals
         ? photo.localOriginalPath
