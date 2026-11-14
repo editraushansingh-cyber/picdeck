@@ -40,6 +40,12 @@ export function LiveSelectionSummary({
         setLive((current) => ({ count: current?.count ?? initialCount, at: event.at }));
         return;
       }
+      // Only client selection changes move this counter. `photo-ready` carries the
+      // ids of freshly uploaded photos, not picks — counting those would show the
+      // studio "2 selected" right after an upload.
+      if (event.kind !== "select" && event.kind !== "unselect" && event.kind !== "replace") {
+        return;
+      }
       setLive({ count: event.photoIds.length, at: event.at });
       setBump(true);
     },
