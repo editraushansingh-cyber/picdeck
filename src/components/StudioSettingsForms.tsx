@@ -7,9 +7,17 @@ import { saveBranding, saveCustomDomain } from "@/app/actions/studio";
 export function BrandingForm({
   watermarkText,
   logoUrl,
+  website,
+  upiId,
+  bankAccount,
+  ifsc,
 }: {
   watermarkText: string | null;
   logoUrl: string | null;
+  website: string | null;
+  upiId: string | null;
+  bankAccount: string | null;
+  ifsc: string | null;
 }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +93,58 @@ export function BrandingForm({
             Shown bottom-right on previews. Leave empty for a clean preview.
           </span>
         </label>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-medium">Invoice letterhead</h3>
+        <p className="mt-1 text-sm text-muted">
+          These appear on every invoice and quotation. Address, city and PIN come from your profile.
+        </p>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm">
+            <span className="font-medium">Website</span>
+            <input
+              name="website"
+              defaultValue={website ?? ""}
+              maxLength={80}
+              placeholder="riyafilm.in"
+              className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium">UPI ID</span>
+            <input
+              name="upiId"
+              defaultValue={upiId ?? ""}
+              maxLength={60}
+              placeholder="studio@okhdfc"
+              className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium">Bank account</span>
+            <input
+              name="bankAccount"
+              defaultValue={bankAccount ?? ""}
+              maxLength={40}
+              placeholder="5012 4478 9901"
+              className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium">IFSC</span>
+            <input
+              name="ifsc"
+              defaultValue={ifsc ?? ""}
+              maxLength={15}
+              placeholder="HDFC0000123"
+              className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm uppercase focus:border-brand focus:outline-none"
+            />
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          Leave a field empty to hide it. No GST number is printed.
+        </p>
       </div>
 
       <button

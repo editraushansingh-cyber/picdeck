@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { accessFor } from "@/lib/access";
+import { parseFunctions } from "@/lib/invoices";
 import { PlanGate } from "@/components/PlanGate";
 import { InvoiceEditor } from "@/components/InvoiceEditor";
 
@@ -39,10 +40,10 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
         clientPhone: invoice.clientPhone,
         clientEmail: invoice.clientEmail,
         clientAddress: invoice.clientAddress,
-        taxRate: invoice.taxRate,
         discount: invoice.discount,
         notes: invoice.notes,
         eventTitle: invoice.event?.title ?? null,
+        functions: parseFunctions(invoice.functions),
         items: invoice.items.map((item) => ({
           description: item.description,
           quantity: String(item.quantity),

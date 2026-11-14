@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveInvoice, setInvoiceStatus, deleteInvoice } from "@/app/actions/invoices";
+import { FunctionsEditor } from "@/components/FunctionsEditor";
 
 export type InvoiceRowData = {
   id: string;
@@ -27,7 +28,6 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<"INVOICE" | "QUOTATION">("INVOICE");
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
-  const [taxRate, setTaxRate] = useState("18");
   const [discount, setDiscount] = useState("0");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,9 +43,7 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
       }, 0),
     [lines],
   );
-  const taxable = Math.max(0, subtotal - (Number(discount) || 0));
-  const taxAmount = Math.round(taxable * ((Number(taxRate) || 0) / 100) * 100) / 100;
-  const total = Math.round((taxable + taxAmount) * 100) / 100;
+  const total = Math.max(0, subtotal - (Number(discount) || 0));
 
   function submit(formData: FormData) {
     setMessage(null);
@@ -68,7 +66,8 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
       <section className="rounded-xl border border-line bg-white p-5">
         <h2 className="font-medium">New document</h2>
         <p className="mt-1 text-sm text-muted">
-          Build a GST-ready invoice or quotation with line items, a discount and a printable layout.
+          Build an invoice or quotation with line items, a discount, the function
+          schedule and a printable layout.
         </p>
         {message && (
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -251,18 +250,6 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
-            <span className="font-medium">GST rate (%)</span>
-            <input
-              name="taxRate"
-              type="number"
-              min={0}
-              max={28}
-              value={taxRate}
-              onChange={(event) => setTaxRate(event.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
-            />
-          </label>
-          <label className="text-sm">
             <span className="font-medium">Discount (₹)</span>
             <input
               name="discount"
@@ -274,6 +261,8 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
             />
           </label>
         </div>
+
+        <FunctionsEditor initial={[]} />
 
         <label className="block text-sm">
           <span className="font-medium">Notes</span>
@@ -290,10 +279,12 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
             <span className="text-muted">Subtotal</span>
             <span className="tabular-nums">{inr(subtotal)}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-muted">GST</span>
-            <span className="tabular-nums">{inr(taxAmount)}</span>
-          </div>
+          {Number(discount) > 0 && (
+            <div className="flex justify-between">
+              <span className="text-muted">Discount</span>
+              <span className="tabular-nums">−{inr(Number(discount))}</span>
+            </div>
+          )}
           <div className="flex justify-between font-semibold">
             <span>Total</span>
             <span className="tabular-nums">{inr(total)}</span>

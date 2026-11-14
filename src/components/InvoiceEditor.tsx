@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateInvoiceItems } from "@/app/actions/invoices";
+import { FunctionsEditor, type FunctionRow } from "@/components/FunctionsEditor";
 
 type Line = { description: string; quantity: string; rate: string };
 
@@ -18,10 +19,10 @@ export type InvoiceDraft = {
   clientPhone: string | null;
   clientEmail: string | null;
   clientAddress: string | null;
-  taxRate: number;
   discount: number;
   notes: string | null;
   eventTitle: string | null;
+  functions: FunctionRow[];
   items: Line[];
 };
 
@@ -29,7 +30,6 @@ export function InvoiceEditor({ invoice }: { invoice: InvoiceDraft }) {
   const [lines, setLines] = useState<Line[]>(
     invoice.items.length > 0 ? invoice.items : [{ description: "", quantity: "1", rate: "" }],
   );
-  const [taxRate, setTaxRate] = useState(String(invoice.taxRate));
   const [discount, setDiscount] = useState(String(invoice.discount));
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,9 +45,7 @@ export function InvoiceEditor({ invoice }: { invoice: InvoiceDraft }) {
       }, 0),
     [lines],
   );
-  const taxable = Math.max(0, subtotal - (Number(discount) || 0));
-  const taxAmount = Math.round(taxable * ((Number(taxRate) || 0) / 100) * 100) / 100;
-  const total = Math.round((taxable + taxAmount) * 100) / 100;
+  const total = Math.max(0, subtotal - (Number(discount) || 0));
 
   function submit(formData: FormData) {
     setMessage(null);
@@ -125,8 +123,9 @@ export function InvoiceEditor({ invoice }: { invoice: InvoiceDraft }) {
           </label>
           <label className="text-sm">
             <span className="font-medium">Billing address</span>
-            <input
+            <textarea
               name="clientAddress"
+              rows={2}
               defaultValue={invoice.clientAddress ?? ""}
               className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
             />
@@ -207,19 +206,9 @@ export function InvoiceEditor({ invoice }: { invoice: InvoiceDraft }) {
           </div>
         </div>
 
+        <FunctionsEditor initial={invoice.functions} />
+
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">
-            <span className="font-medium">GST rate (%)</span>
-            <input
-              name="taxRate"
-              type="number"
-              min={0}
-              max={28}
-              value={taxRate}
-              onChange={(event) => setTaxRate(event.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
-            />
-          </label>
           <label className="text-sm">
             <span className="font-medium">Discount (₹)</span>
             <input
@@ -248,10 +237,12 @@ export function InvoiceEditor({ invoice }: { invoice: InvoiceDraft }) {
             <span className="text-muted">Subtotal</span>
             <span className="tabular-nums">{inr(subtotal)}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-muted">GST ({Number(taxRate) || 0}%)</span>
-            <span className="tabular-nums">{inr(taxAmount)}</span>
-          </div>
+          {Number(discount) > 0 && (
+            <div className="flex justify-between">
+              <span className="text-muted">Discount</span>
+              <span className="tabular-nums">−{inr(Number(discount))}</span>
+            </div>
+          )}
           <div className="flex justify-between font-semibold">
             <span>Total</span>
             <span className="tabular-nums">{inr(total)}</span>

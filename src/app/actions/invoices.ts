@@ -28,6 +28,24 @@ function parseItems(formData: FormData): ParsedItem[] {
   return items;
 }
 
+/** Reads the wedding-function schedule from `fn_name[]`, `fn_date[]`, `fn_venue[]`. */
+function parseFunctionRows(formData: FormData) {
+  const names = formData.getAll("fn_name").map(String);
+  const dates = formData.getAll("fn_date").map(String);
+  const venues = formData.getAll("fn_venue").map(String);
+  const rows: { name: string; date: string; venue: string }[] = [];
+  names.forEach((name, index) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    rows.push({
+      name: trimmed.slice(0, 40),
+      date: String(dates[index] ?? "").trim().slice(0, 40),
+      venue: String(venues[index] ?? "").trim().slice(0, 60),
+    });
+  });
+  return rows.slice(0, 8);
+}
+
 export async function saveInvoice(formData: FormData) {
   const user = await requireUser();
   const gate = await requireModule(user.id, "invoices", "Invoices");
@@ -37,7 +55,7 @@ export async function saveInvoice(formData: FormData) {
   if (items.length === 0) return { ok: false as const, message: "Add at least one line item" };
 
   const type = formData.get("type") === "QUOTATION" ? "QUOTATION" : "INVOICE";
-  const taxRate = Math.max(0, Math.min(28, Number(formData.get("taxRate") || 18)));
+  const taxRate = Math.max(0, Math.min(28, Number(formData.get("taxRate") || 0)));
   const discount = Math.max(0, Number(formData.get("discount") || 0));
   const clientName = String(formData.get("clientName") || "").trim();
   if (!clientName) return { ok: false as const, message: "Client name is required" };
@@ -58,6 +76,7 @@ export async function saveInvoice(formData: FormData) {
       clientPhone: String(formData.get("clientPhone") || "").trim() || null,
       clientAddress: String(formData.get("clientAddress") || "").trim() || null,
       notes: String(formData.get("notes") || "").trim() || null,
+      functions: JSON.stringify(parseFunctionRows(formData)),
       taxRate,
       discount,
       subtotal,
@@ -108,7 +127,7 @@ export async function updateInvoiceItems(invoiceId: string, formData: FormData) 
   const items = parseItems(formData);
   if (items.length === 0) return { ok: false as const, message: "Add at least one line item" };
 
-  const taxRate = Math.max(0, Math.min(28, Number(formData.get("taxRate") || invoice.taxRate)));
+  const taxRate = 0;
   const discount = Math.max(0, Number(formData.get("discount") || invoice.discount));
   const { subtotal, taxAmount, total } = computeTotals(items, taxRate, discount);
 
@@ -127,6 +146,7 @@ export async function updateInvoiceItems(invoiceId: string, formData: FormData) 
         clientEmail: String(formData.get("clientEmail") || "").trim() || null,
         clientAddress: String(formData.get("clientAddress") || "").trim() || null,
         notes: String(formData.get("notes") || "").trim() || null,
+        functions: JSON.stringify(parseFunctionRows(formData)),
         items: {
           create: items.map((item, index) => ({
             description: item.description,

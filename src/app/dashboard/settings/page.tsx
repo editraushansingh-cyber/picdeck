@@ -81,6 +81,10 @@ export default async function SettingsPage({
       <BrandingForm
         watermarkText={user.watermarkText}
         logoUrl={user.logoPath ? `/api/studio-logo/${user.id}` : null}
+        website={user.website}
+        upiId={user.upiId}
+        bankAccount={user.bankAccount}
+        ifsc={user.ifsc}
       />
 
       <DomainForm

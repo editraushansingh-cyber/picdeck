@@ -190,7 +190,7 @@ export default async function HomePage() {
                 },
                 {
                   title: "Invoices & quotations",
-                  body: "Line items, GST, discount, printable A4 — numbered INV/QUO automatically.",
+                  body: "Line items, function schedule, discount, printable A4 — numbered INV/QUO automatically.",
                   tag: "Silver+",
                 },
                 {

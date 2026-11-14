@@ -25,6 +25,14 @@ model User {
   city            String?
   pinCode         String?
   address         String?
+  /** Public site shown in the invoice letterhead (e.g. riyafilm.in). */
+  website         String?
+  /** UPI id printed in the invoice payment block. */
+  upiId           String?
+  /** Bank account number printed on invoices. */
+  bankAccount     String?
+  /** IFSC code that goes with the account above. */
+  ifsc            String?
   referralCode    String    @unique
   /** Short code behind the "all events in one QR" studio page. */
   studioCode      String?   @unique
@@ -309,7 +317,9 @@ model Invoice {
   clientPhone String?
   clientAddress String?
   notes       String?
-  taxRate     Float    @default(18)
+  /** JSON array of the wedding functions printed on the invoice: [{name, date, venue}]. */
+  functions   String   @default("[]")
+  taxRate     Float    @default(0)
   discount    Float    @default(0)
   subtotal    Float    @default(0)
   taxAmount   Float    @default(0)

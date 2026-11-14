@@ -24,13 +24,19 @@ export async function saveBranding(formData: FormData) {
     logoPath = null;
   }
 
+  const website = String(formData.get("website") || "").trim().slice(0, 80) || null;
+  const upiId = String(formData.get("upiId") || "").trim().slice(0, 60) || null;
+  const bankAccount = String(formData.get("bankAccount") || "").trim().slice(0, 40) || null;
+  const ifsc = String(formData.get("ifsc") || "").trim().toUpperCase().slice(0, 15) || null;
+
   await prisma.user.update({
     where: { id: user.id },
-    data: { watermarkText, logoPath },
+    data: { watermarkText, logoPath, website, upiId, bankAccount, ifsc },
   });
 
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/events");
+  revalidatePath("/dashboard/invoices");
   return { ok: true as const };
 }
 
