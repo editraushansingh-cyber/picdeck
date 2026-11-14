@@ -128,7 +128,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
                 id: photo.id,
                 originalName: photo.originalName,
                 isRaw: photo.isRaw,
-                hasThumb: !!photo.thumbPath,
+                hasThumb: !!photo.thumbPath || !!photo.thumbDriveFileId,
                 sizeBytes: photo.sizeBytes,
                 selected: selectedIds.has(photo.id),
               }))}

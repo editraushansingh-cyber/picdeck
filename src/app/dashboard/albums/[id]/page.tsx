@@ -25,8 +25,8 @@ export default async function AlbumEditorPage({ params }: { params: Promise<{ id
       pages: {
         orderBy: { position: "asc" },
         include: {
-          photoA: { select: { id: true, originalName: true, thumbPath: true } },
-          photoB: { select: { id: true, originalName: true, thumbPath: true } },
+          photoA: { select: { id: true, originalName: true, thumbPath: true, thumbDriveFileId: true } },
+          photoB: { select: { id: true, originalName: true, thumbPath: true, thumbDriveFileId: true } },
         },
       },
     },
@@ -52,9 +52,9 @@ export default async function AlbumEditorPage({ params }: { params: Promise<{ id
         pages: album.pages.map((page) => ({
           id: page.id,
           caption: page.caption,
-          a: { id: page.photoA.id, alt: page.photoA.originalName, hasThumb: !!page.photoA.thumbPath },
+          a: { id: page.photoA.id, alt: page.photoA.originalName, hasThumb: !!page.photoA.thumbPath || !!page.photoA.thumbDriveFileId },
           b: page.photoB
-            ? { id: page.photoB.id, alt: page.photoB.originalName, hasThumb: !!page.photoB.thumbPath }
+            ? { id: page.photoB.id, alt: page.photoB.originalName, hasThumb: !!page.photoB.thumbPath || !!page.photoB.thumbDriveFileId }
             : null,
         })),
       }}

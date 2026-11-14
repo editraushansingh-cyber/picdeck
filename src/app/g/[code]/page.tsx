@@ -62,8 +62,8 @@ export default async function ClientGalleryPage({
             isRaw: photo.isRaw,
             width: photo.width,
             height: photo.height,
-            hasThumb: !!photo.thumbPath,
-            hasPreview: !!photo.previewPath,
+            hasThumb: !!photo.thumbPath || !!photo.thumbDriveFileId,
+            hasPreview: !!photo.previewPath || !!photo.previewDriveFileId,
           })),
           selectedIds: gallery.selections.map((selection) => selection.photoId),
         }}

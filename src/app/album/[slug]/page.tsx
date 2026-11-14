@@ -15,8 +15,8 @@ async function loadAlbum(slug: string) {
       pages: {
         orderBy: { position: "asc" },
         include: {
-          photoA: { select: { id: true, originalName: true, thumbPath: true, previewPath: true } },
-          photoB: { select: { id: true, originalName: true, thumbPath: true, previewPath: true } },
+          photoA: { select: { id: true, originalName: true, thumbPath: true, previewPath: true, thumbDriveFileId: true, previewDriveFileId: true } },
+          photoB: { select: { id: true, originalName: true, thumbPath: true, previewPath: true, thumbDriveFileId: true, previewDriveFileId: true } },
         },
       },
     },
@@ -66,10 +66,10 @@ export default async function AlbumPage({ params }: { params: Promise<{ slug: st
         a: {
           id: page.photoA.id,
           alt: page.photoA.originalName,
-          hasThumb: !!page.photoA.thumbPath,
+          hasThumb: !!page.photoA.thumbPath || !!page.photoA.thumbDriveFileId,
         },
         b: page.photoB
-          ? { id: page.photoB.id, alt: page.photoB.originalName, hasThumb: !!page.photoB.thumbPath }
+          ? { id: page.photoB.id, alt: page.photoB.originalName, hasThumb: !!page.photoB.thumbPath || !!page.photoB.thumbDriveFileId }
           : null,
       }))}
     />
