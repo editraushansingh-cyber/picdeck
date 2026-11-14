@@ -83,11 +83,3 @@ export function randomReferralCode() {
 export function generateGalleryCode() {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
 }
-
-export function hashOtp(code: string, phone: string) {
-  return crypto.createHmac("sha256", secret()).update(`${phone}:${code}`).digest("hex");
-}
-
-export function generateOtp() {
-  return String(crypto.randomInt(100000, 999999));
-}

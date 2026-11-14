@@ -4,9 +4,15 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+/*
+ * Production: switch `provider` to "postgresql" and point DATABASE_URL at a
+ * managed Postgres (Neon / Supabase / RDS). Every model below is portable —
+ * no SQLite-only types — so the same schema runs on both.
+ */
 
 model User {
   id              String    @id @default(cuid())
@@ -20,6 +26,12 @@ model User {
   pinCode         String?
   address         String?
   referralCode    String    @unique
+  /** Short code behind the "all events in one QR" studio page. */
+  studioCode      String?   @unique
+  /** Studio logo used on albums and (optionally) as a preview watermark. */
+  logoPath        String?
+  /** Text watermark applied to client previews, e.g. "Demo Studio". */
+  watermarkText   String?
   referredById    String?
   referredBy      User?     @relation("Referrals", fields: [referredById], references: [id])
   referrals       User[]    @relation("Referrals")
@@ -28,21 +40,59 @@ model User {
 
   events        Event[]
   subscriptions Subscription[]
+  albums        Album[]
+  invitations   Invitation[]
+  invoices      Invoice[]
+  creditsEarned ReferralCredit[] @relation("CreditOwner")
+  creditsGiven  ReferralCredit[] @relation("CreditSource")
+  notifications Notification[]
+  studioSite    StudioSite?
+  driveLink     DriveLink?
+  storageConn   StorageConnection?
 
   @@index([referredById])
 }
 
-model OtpCode {
-  id        String    @id @default(cuid())
-  phone     String
-  codeHash  String
-  purpose   String    @default("register")
-  attempts  Int       @default(0)
-  expiresAt DateTime
-  consumedAt DateTime?
-  createdAt DateTime  @default(now())
+// ── Google Drive (per studio, OAuth) ─────────────────────────────────────────
+// Each photographer connects their own Drive. Only the `drive.file` scope is
+// requested, so the app can touch files it created and nothing else.
+model DriveLink {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /** Google account email used for the connection. */
+  email        String?
+  /** Root folder created inside the user's Drive ("PicDeck"). */
+  folderId     String?
+  /** AES-256-GCM encrypted refresh token (see lib/crypto.ts). */
+  refreshToken String
+  /** AES-256-GCM encrypted access token + expiry, refreshed on demand. */
+  accessToken  String?
+  accessExpiry DateTime?
+  scope        String?
+  status       String   @default("CONNECTED") // CONNECTED | REVOKED | ERROR
+  lastError    String?
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
 
-  @@index([phone, purpose, createdAt])
+/**
+ * Where a studio's preview/thumbnail derivatives live. Local disk today;
+ * S3 / Cloudflare R2 can be added behind the same interface (lib/object-store).
+ */
+model StorageConnection {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  String   @default("local") // local | s3 | r2
+  bucket    String?
+  region    String?
+  /** AES-256-GCM encrypted secret access key. */
+  secretKey String?
+  accessKey String?
+  endpoint  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Event {
@@ -53,17 +103,24 @@ model Event {
   eventDate                 DateTime?
   clientName                String?
   clientPhone               String?
+  clientEmail               String?
   note                      String?
   galleryCode               String   @unique
   selectionLimit            Int?
   downloadEnabled           Boolean  @default(true)
   originalDownloadEnabled   Boolean  @default(false)
   status                    String   @default("ACTIVE")
+  /** Google Drive folder id for this event's originals (studio's own Drive). */
+  driveFolderId             String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
   photos     Photo[]
   selections Selection[]
+  selectionEvents SelectionEvent[]
+  albums     Album[]
+  invoices   Invoice[]
+  notifications Notification[]
 
   @@index([userId, createdAt])
 }
@@ -81,9 +138,28 @@ model Photo {
   thumbPath  String?
   previewPath String?
   isRaw      Boolean  @default(false)
+  /** Where the original lives: LOCAL | DRIVE. */
+  originalStore String @default("LOCAL")
+  /** Google Drive file id when originalStore = DRIVE. */
+  driveFileId   String?
+  /** Google Drive folder id for this event (created lazily). */
+  driveFolderId String?
+  /** Relative path of a locally stored original (null when it lives in Drive). */
+  localOriginalPath String?
+  /**
+   * READY means the original finished landing in Drive (or the local fallback
+   * store). Only READY photos are shown to clients, so a gallery can never
+   * point at a photo that is still in transit. Mirrors CamTom's
+   * `photoUploaded` flag, which is written only after the Drive insert resolves.
+   */
+  status     String   @default("READY")
   createdAt  DateTime @default(now())
 
   selection Selection?
+  face      FaceDescriptor?
+  albumPagesA AlbumPage[] @relation("PageA")
+  albumPagesB AlbumPage[] @relation("PageB")
+  albumCovers Album[]     @relation("AlbumCover")
 
   @@index([eventId, createdAt])
 }
@@ -99,6 +175,27 @@ model Selection {
   createdAt   DateTime @default(now())
 
   @@index([eventId])
+}
+
+/**
+ * Append-only log of selection changes. The SSE stream replays events after a
+ * client's `Last-Event-ID`, so a studio that slept through a heartbeat still
+ * sees every pick. CamTom escapes this problem by using Firestore snapshots;
+ * we keep the same "every device sees the same list within a second" behaviour
+ * on our own Postgres.
+ */
+model SelectionEvent {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  /** select | unselect | replace | photo-ready | photo-removed */
+  kind      String
+  photoIds  String   @default("[]") // JSON array
+  actor     String   @default("client") // client | studio
+  clientName String?
+  createdAt DateTime @default(now())
+
+  @@index([eventId, createdAt])
 }
 
 model Plan {
@@ -137,4 +234,170 @@ model GalleryAttempt {
   createdAt DateTime @default(now())
 
   @@index([eventId, ip, createdAt])
+}
+// ── AI face search ────────────────────────────────────────────────────────────
+// Deterministic demo descriptor (colour histogram + aspect signature). A real
+// deployment replaces lib/face.ts#descriptorFor with a face-embedding model.
+model FaceDescriptor {
+  id        String   @id @default(cuid())
+  photoId   String   @unique
+  photo     Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  vector    String   // JSON array of numbers
+  /** Optional human label; auto-tagged clusters start as "Person 1", renameable. */
+  tag       String?
+  createdAt DateTime @default(now())
+}
+
+// ── Digital album / flipbook ──────────────────────────────────────────────────
+model Album {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId      String
+  event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  slug         String   @unique
+  title        String
+  subtitle     String?
+  coverPhotoId String?
+  coverPhoto   Photo?   @relation("AlbumCover", fields: [coverPhotoId], references: [id], onDelete: SetNull)
+  /** Custom cover artwork (uploaded image) shown before the first spread. */
+  coverPath    String?
+  /** Background music track for the flipbook. */
+  musicPath    String?
+  musicTitle   String?
+  published    Boolean  @default(true)
+  views        Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  pages AlbumPage[]
+
+  @@index([eventId])
+  @@index([userId])
+}
+
+model AlbumPage {
+  id       String  @id @default(cuid())
+  albumId  String
+  album    Album   @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  photoAId String
+  photoA   Photo   @relation("PageA", fields: [photoAId], references: [id], onDelete: Cascade)
+  photoBId String?
+  photoB   Photo?  @relation("PageB", fields: [photoBId], references: [id], onDelete: SetNull)
+  caption  String?
+  position Int
+
+  @@index([albumId, position])
+}
+
+// ── Invoicing / quotation ─────────────────────────────────────────────────────
+model Invoice {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId     String?
+  event       Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  number      String   @unique
+  type        String   @default("INVOICE")   // INVOICE | QUOTATION
+  status      String   @default("DRAFT")     // DRAFT | SENT | PAID | CANCELLED
+  issuedAt    DateTime @default(now())
+  dueAt       DateTime?
+  clientName  String
+  clientEmail String?
+  clientPhone String?
+  clientAddress String?
+  notes       String?
+  taxRate     Float    @default(18)
+  discount    Float    @default(0)
+  subtotal    Float    @default(0)
+  taxAmount   Float    @default(0)
+  total       Float    @default(0)
+  createdAt   DateTime @default(now())
+
+  items InvoiceItem[]
+
+  @@index([userId, createdAt])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float   @default(1)
+  rate        Float   @default(0)
+  amount      Float   @default(0)
+  position    Int     @default(0)
+
+  @@index([invoiceId, position])
+}
+
+// ── Studio micro-site ("My Website") ──────────────────────────────────────────
+model StudioSite {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug       String   @unique
+  headline   String
+  about      String?
+  services   String   @default("[]") // JSON array of {title, price, description}
+  coverPath  String?
+  whatsapp   String?
+  instagram  String?
+  city       String?
+  customDomain String? @unique
+  published  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ── Wedding invitations ───────────────────────────────────────────────────────
+model Invitation {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug      String   @unique
+  template  String   @default("ivory")
+  coupleA   String
+  coupleB   String
+  eventDate DateTime?
+  venue     String?
+  message   String?
+  rsvpCount Int      @default(0)
+  published Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ── Referral credits ──────────────────────────────────────────────────────────
+model ReferralCredit {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("CreditOwner", fields: [userId], references: [id], onDelete: Cascade)
+  sourceId    String?
+  source      User?    @relation("CreditSource", fields: [sourceId], references: [id], onDelete: SetNull)
+  amountInr   Int      @default(200)
+  reason      String   @default("signup")
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ── Notification queue (WhatsApp / email templates) ───────────────────────────
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId   String?
+  event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  channel   String   @default("email") // email only; SMS/WhatsApp are intentionally not part of this build
+  toName    String?
+  toPhone   String?
+  toEmail   String?
+  template  String
+  message   String
+  status    String   @default("QUEUED") // QUEUED | SENT | FAILED
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

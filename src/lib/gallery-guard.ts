@@ -3,14 +3,19 @@ import { prisma } from "./db";
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_FAILS_PER_IP = 5;
 const MAX_FAILS_PER_EVENT = 20;
+const MAX_FAILS_PER_IP_GLOBAL = 10;
+
+function windowStart() {
+  return new Date(Date.now() - WINDOW_MS);
+}
 
 /**
- * Gallery codes are 6 digits, so guessing must be bounded. We count failed
- * attempts server-side per (event, ip) inside 15 minutes, and per event in
- * that same window. Successful attempts do not count against the limit.
+ * A six-digit code is only safe if guessing is expensive. We count failed
+ * attempts per device, per gallery, and globally per device (which covers codes
+ * that do not match any gallery at all).
  */
 export async function galleryLocked(eventId: string, ip: string) {
-  const since = new Date(Date.now() - WINDOW_MS);
+  const since = windowStart();
   const [perIp, perEvent] = await Promise.all([
     prisma.galleryAttempt.count({
       where: { eventId, ip, success: false, createdAt: { gte: since } },
@@ -20,6 +25,14 @@ export async function galleryLocked(eventId: string, ip: string) {
     }),
   ]);
   return perIp >= MAX_FAILS_PER_IP || perEvent >= MAX_FAILS_PER_EVENT;
+}
+
+/** Bounds guessing even when the submitted code matches no gallery. */
+export async function ipLocked(ip: string) {
+  const count = await prisma.galleryAttempt.count({
+    where: { ip, success: false, createdAt: { gte: windowStart() } },
+  });
+  return count >= MAX_FAILS_PER_IP_GLOBAL;
 }
 
 export async function recordAttempt(eventId: string, ip: string, success: boolean) {
