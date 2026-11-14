@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const MAX_MB = 25;
+/** Per-chunk byte size for the proxied upload (~3 MB keeps far under Vercel's body limit). */
+const CHUNK_SIZE = 3 * 1024 * 1024;
 
 type Props = {
   eventId: string;
@@ -22,7 +24,14 @@ export function UploadDropzone({ eventId, driveConnected, driveRequired }: Props
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  /** Browser → Google Drive directly, so Vercel's 4.5 MB body limit never applies. */
+  /**
+   * Upload one file to Google Drive. The browser starts a resumable session via
+   * `/drive-session`, then streams the bytes up in small chunks through our
+   * server (`/upload-chunk`) which forwards them to Drive server-side. We proxy
+   * because Drive's upload endpoint does not send `Access-Control-Allow-Origin`,
+   * so a browser cannot PUT to it directly. Each chunk + headers stays below
+   * Vercel's ~4.5 MB request limit.
+   */
   async function uploadToDrive(file: File): Promise<string | null> {
     const sessionResponse = await fetch(`/api/events/${eventId}/photos/drive-session`, {
       method: "POST",
@@ -37,23 +46,46 @@ export function UploadDropzone({ eventId, driveConnected, driveRequired }: Props
     if (!sessionResponse.ok || !session.uploadUrl) {
       return session.error ?? "Could not start the Drive upload";
     }
+    const { uploadUrl } = session;
 
-    const put = await fetch(session.uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-    });
-    if (!put.ok) {
-      return `${file.name}: Google Drive rejected the upload (${put.status})`;
+    let offset = 0;
+    let fileId: string | null | undefined;
+    while (offset < file.size) {
+      const end = Math.min(offset + CHUNK_SIZE, file.size);
+      const blob = file.slice(offset, end);
+      const body = await blob.arrayBuffer();
+
+      const chunkResponse = await fetch(`/api/events/${eventId}/photos/upload-chunk`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "x-drive-upload-url": uploadUrl,
+          "x-drive-offset": String(offset),
+          "x-drive-total": String(file.size),
+        },
+        body,
+      });
+      const res = (await chunkResponse.json()) as {
+        nextOffset?: number;
+        finished?: boolean;
+        fileId?: string | null;
+        error?: string;
+      };
+      if (!chunkResponse.ok || res.error) {
+        return res.error ?? `${file.name}: chunk upload failed`;
+      }
+      offset = res.nextOffset ?? end;
+      fileId = res.fileId ?? fileId;
+      if (res.finished) break;
     }
-    const uploaded = (await put.json()) as { id?: string };
-    if (!uploaded.id) return `${file.name}: Drive did not return a file id`;
+
+    if (!fileId) return `${file.name}: Drive did not return a file id`;
 
     const register = await fetch(`/api/events/${eventId}/photos/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        driveFileId: uploaded.id,
+        driveFileId: fileId,
         name: file.name,
         size: file.size,
         type: file.type,

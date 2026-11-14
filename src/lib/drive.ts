@@ -322,6 +322,57 @@ export async function initiateResumableUpload(
   return { uploadUrl };
 }
 
+/**
+ * Pushes one chunk of a resumable upload to Google Drive, server-side.
+ *
+ * The client ends bytes to Vercel in small slices (below the ~4.5 MB request
+ * limit); this routes each slice to the Drive resumable session URL obtained
+ * by `initiateResumableUpload`. Proxying through the server avoids the browser
+ * CORS block on our direct-to-Google uploads (Drive's `/upload` endpoint does
+ * not send `Access-Control-Allow-Origin`).
+ */
+export async function pushUploadChunk(
+  uploadUrl: string,
+  chunk: Uint8Array,
+  offset: number,
+  total: number,
+): Promise<{ nextOffset: number; finished: boolean; fileId?: string }> {
+  const start = offset;
+  const end = offset + chunk.byteLength - 1;
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Length": String(chunk.byteLength),
+      "Content-Range": `bytes ${start}-${end}/${total}`,
+    },
+    body: new Blob([new Uint8Array(chunk)], { type: "application/octet-stream" }),
+  });
+  if (response.status === 308) {
+    // Google sends a `Range` header of the next expected byte.
+    const range = response.headers.get("range");
+    let cursor = end + 1;
+    if (range) {
+      const m = /(\d+)\s*-\s*(\d+)\s*$/.exec(range);
+      if (m) cursor = Number(m[2]) + 1;
+    }
+    return { nextOffset: cursor, finished: false };
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Drive chunk ${response.status}: ${text.slice(0, 120)}`);
+  }
+  // Successful final PUT returns the file metadata.
+  let fileId: string | undefined;
+  try {
+    const json = (await response.json()) as { id?: string };
+    fileId = json.id;
+  } catch {
+    /* final PUT may return empty body */
+  }
+  return { nextOffset: end + 1, finished: true, fileId };
+}
+
 /** Reads basic metadata for a file the studio just uploaded. */
 export async function driveFileMeta(userId: string, fileId: string) {
   const token = await driveToken(userId);
