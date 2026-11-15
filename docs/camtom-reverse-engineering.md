@@ -165,3 +165,203 @@ Flow:
 **Known limit:** hub per-process hai. Multi-instance deploy par `publish()` ke peeche shared bus (Postgres `LISTEN/NOTIFY` ya Redis) chahiye; tab tak doosre instance ka write agle poll (5 s) par dikhega.
 
 Yeh same effect deta hai jo CamTom Firestore se deta hai, par hamare Postgres/Next stack par, bina kisi third-party realtime service ke.
+---
+
+## 10. Invoice / Quotation system (Nov 2026 pass)
+
+### 10.1 Kahan hai — desktop app mein nahi, hosted panel mein
+
+| Target | Invoice code? | Evidence |
+| --- | --- | --- |
+| `app.asar` (368 MB, 4703 files) | **Nahi** | Poore ASAR mein `invoice` ke sirf 38 byte-hits — sab `googleapis` ke bundled `displayvideo` / `content_v2` `Resource$Invoices` + `sqlite3` ka `ShowBitvec` comment. (`observed`) |
+| ASAR file list | **Nahi** | `src/` ke 175 non-`node_modules` files mein koi `invoice`, `bill`, `tax`, `gst`, `quot`, `receipt` naam ka file nahi. (`observed`) |
+| `src/upload/main.dart.js` (Flutter uploader, 1.76 MB) | **Nahi** | `invoice`/`billing`/`GST`/`quotation`/`receipt` = 0 hits. Sirf Firebase RTDB URL. (`observed`) |
+| **`camtommyepickphotographerpanelsfaceainnew.firebaseapp.com`** | **Haan** | Flutter web studio panel, `main.dart.js` 7.72 MB. Yahan poora Quotation/Bill/Receipt system hai. (`observed`) |
+
+Matlab: CamTom ka desktop app sirf upload/compress/flipbook karta hai. Billing ek **web panel** hai — usi Firebase project par (`camtom-myepick`), alag hosting par.
+
+### 10.2 Panel modules (observed strings)
+
+Dashboard · Customers · **Quotation** · Assignment/Order Booking · Team · **Payment Receipt** · **Expenses** · **Bill** · Reports · Payment QR · Calender · Profile · Support Us · Service/Work Types · **Terms Condition** · Download History.
+
+### 10.3 Quotation + Bill ek hi model, ek hi collection nahi
+
+| Cheez | Quotation | Bill |
+| --- | --- | --- |
+| Firestore path | `User/{uid}/Quotations` | `User/{uid}/Bills` |
+| PDF header | `QUOTATION` | `INVOICE` |
+| Number label | `Quote No:` | `Bill No:` |
+| Date label | `Date:` | `Date:` |
+| Validity label | `Valid Until:` | `Bill Due Date:` |
+| Totals label | `QUOTATION TOTAL` | `BILL TOTAL` |
+| Payments block | nahi | haan (`Payments` + payment rows) |
+| Signature toggle | `QUOSING` | `BILLSING` |
+
+(observed: `m.c ? "QUOTATION" : "BILL"`, `f ? "Bill" : "Quote"` + `" No:"`, `f ? "Bill Due Date" : "Valid Until"`.)
+
+Do alag Firestore collections hain — `Ph(bool isBill)` ek hi function se dono handle karta hai.
+
+### 10.4 Numbering — auto increment, per-user
+
+```js
+Ph(a){ // a = isBill
+  const col = a ? "Bills" : "Quotations";
+  return User/{uid}/{col}
+    .orderBy("quoNo", descending)
+    .limit(1)
+    .get()
+    .then(snap => snap.empty ? 1 : snap.docs[0].data().quoNo + 1);
+}
+```
+(observed)
+
+* Number **dono collections mein alag** chalta hai — Bill #7 aur Quote #7 dono ho sakte hain.
+* `User.indexNumbers = {quoteNumber, billNumber}` se **user ke profile par bhi mirror** hota hai (probably display/backup ke liye). (`observed` field; mirror likhne ka trigger inferred.)
+* Koi prefix/year nahi — sirf integer. PicDeck ka `INV-26-0001` isse zyada informative hai.
+
+### 10.5 Quotation document — poora schema (observed)
+
+Firestore doc `User/{uid}/Quotations/{id}`:
+
+| Field | Type | Kaam |
+| --- | --- | --- |
+| `quoNo` | int | Sequential number |
+| `date` | timestamp | Quote/Bill date |
+| `validity` | timestamp? | `Valid Until` / `Bill Due Date` |
+| `gstno` | string? | Client/studio GST — sirf header mein print |
+| `upiID` | string? | UPI line on PDF |
+| `status` | int (default `0`) | Quote: `0 None · 1 Sent · 2 Hold · 3 Booked · 4 Updated · 5 Rejected`; Bill: `0 None · 1 Sent · 2 Paid · 3 Overdue · 4 Cancelled · 5 Refunded` |
+| `budget` | bool | "Budget Price Applied" mode |
+| `budgetAmt` | num? | Flat total jab budget mode on ho |
+| `tax` | num? | **Percentage** (`Tax in %`) |
+| `discount` | num? | Rupees, subtotal se ghata kar |
+| `miscellaneous` | num? | Rupees, total mein jod kar |
+| `total` | num | Cached final total (`Zc()` isi ko return karta hai) |
+| `bankDetails` | map | `{bankName, bankAccountNumber, bankAccountHolderName, bankIFSCCode}` |
+| `toDetails` | map | `{name, businessName, address, phone, docId}` — `docId` customer doc ka ref |
+| `listItem` | array | Line items (neeche) |
+| `termsConditions` | string[] | Free-text lines |
+| `dates` | array? | Event schedule — `{date, name, desc}` |
+| `paymentList` | array | Payment entries (neeche) |
+| `docID` | string? | Self ref (create ke baad) |
+| `serverDate` | timestamp | Server write time |
+
+Line item (`listItem[]`):
+
+| Field | Kaam |
+| --- | --- |
+| `title` | Item/package name |
+| `desc` | Description |
+| `qnty` | Quantity |
+| `price` | Rate |
+| `total` | qty × price (cached) |
+| `group` | Group heading, default `"Deliverables"` |
+| `index` | Sort order |
+| `keyIndx` | Group key (same group ke items share karte hain) |
+
+Event date (`dates[]`): `{date, name, desc}` — PDF par "Inquiry for dates" strip banti hai, numbered list ki tarah, har row `name :- date, desc`.
+
+Payment (`paymentList[]`): `{userName, docID, entryType, amount, updated, receiptNo, dateTime, orderDocID, expDocID, createTime, updateUID, paymentMode, description}` — **yahi `Account` collection ka row hai**, quotation usi doc ko embed karta hai. `paymentMode` index into `["CASH","UPI (mobile)","CARD","BANK TRANSFER"]`.
+
+### 10.6 Totals maths — do modes (observed)
+
+**Items mode** (`budget == false`):
+```
+itemsTotal   = Σ (qnty × price)              // aAv()
+base         = itemsTotal === 0 ? miscellaneous : itemsTotal
+afterDisc    = base - discount
+taxAmount    = afterDisc × (tax/100)         // dy mein cache hota
+total        = afterDisc + taxAmount + miscellaneous
+```
+**Budget mode** (`budget == true`):
+```
+gross   = budgetAmt - discount
+net     = gross / (1 + tax/100)      // tax inclusive nikala jata hai
+total   = budgetAmt                  // final = budgetAmt
+```
+(observed, `aea()` / `Zc()` / `aAv()`)
+
+Note: **budget mode mein tax inclusive hai** (reverse-calculate), items mode mein **exclusive** (add-on). Ye ek asli design decision hai jo copy karne layak hai ya nahi — interview ka sawaal.
+
+Advance = `Σ paymentList[].amount` (`acn()`). Balance = `total - advance`. Payment list sirf **Bill** par print hoti hai.
+
+### 10.7 PDF layout — exact section order (observed)
+
+1. **Header** — logo (Google Drive `lh3.googleusercontent.com/d/<id>` ya bundled `logo2.png`), studio name uppercase, address, phone, `GST No. <gstno>` (agar ho), right side `INVOICE`/`QUOTATION` + `Made by CamTom- Photographers Solution` footer line.
+2. **Customer vs meta** (do columns) — left: `Customer name`, business name, address, `Phone:`; right: `Bill/Quote No:`, `Date:`, `Bill Due Date`/`Valid Until:`.
+3. **Inquiry for dates** — uppercase strip + numbered event rows (sirf tab jab `dates[]` bhari ho).
+4. **Items table** — header `QTY | DETAILS | PRICE` (AMOUNT column bhi hai lekin header string `"AMOUNT"` bundle mein nahi mila, cell-level `q[3]` se render hota hai). Group headings bold + underline; har group ke items ke baad **group subtotal** line (`<group> :-` + amount). Har row: qty, title (+ desc chhota), price, qty×price.
+5. **Payment Details block** — tab print hota hai jab bank details ya UPI ho: `BANK NAME:`, `ACCOUNT NO.:`, `IFSC CODE.:`, `UPI ID:`.
+6. **Totals (right column)** — `TOTAL` (bold bar) → `Advance` → `Balance`. (Print PDF par `SUB TOTAL`/`Tax in %`/`Discount`/`Miscellaneous` **nahi** aate — wo sirf **editor screen** ke summary mein dikhte hain, `bmE.bx7()` mein. Ye important difference hai.)
+7. **Signature** — signature image (Drive ya bundled `signature.png`) + `SIGNATURE` label. Sirf tab jab user ne signature setting on ki ho.
+8. **Terms & Conditions** — uppercase heading + numbered list (agar terms bhari hon).
+9. **Payments** (sirf Bill) — `Payments` heading + rows: date, description, `Mode: <CASH/UPI/CARD/BANK TRANSFER>`, amount.
+10. Footer har page par — `Made by CamTom- Photographers Solution 1/N` ya `1 / N Pages` (setting se).
+
+### 10.8 Editor screen (jo PDF par nahi aata)
+
+`arV()` ke accordion sections: `Basic Details`, `Items` (+ `Add Items/Groups`), `Tax & Miscellaneous`, `Terms Conditions`, `Generate Preview`.
+
+* `Tax in %` ka label dynamic hai: `Tax in % 18=₹1,234` (percent + computed amount preview).
+* Har field ke saath note: *"Note: Keep empty for remove the field from <Quotation|Bill> PDF"* — matlab **0/blank = field print hi nahi hoti**. Ye ek clean pattern hai.
+* `Discount` → `SUB TOTAL` ke baad negative line. `Miscellaneous` → total mein jod.
+* `Set final total` + `Total Budget` toggle = budget mode.
+* `Add UPI on PDF` / `Bank Details on PDF` alag toggles.
+* `Order Dates` — *"Note: This Order Dates & Name are optional"*.
+
+### 10.9 Distribution (observed)
+
+* PDF `printing` package se banti hai (Flutter web) — `printPdf` (print dialog), `sharePdf` (share sheet), `rasterPdf` (image preview).
+* WhatsApp: `https://api.whatsapp.com/send?phone=<number>&text=<encoded>` — **PDF attach nahi hoti**, sirf text message jata hai. PDF share alag se (`sharePdf`).
+* Kahin bhi email bhejne ka code nahi mila quotation ke liye.
+
+### 10.10 CamTom se kya lena, kya nahi
+
+**Lena chahiye:**
+1. **Budget vs Items mode** — clients aksar "total ₹2,00,000 karo" bolte hain, item-wise breakdown baad mein. Ye real workflow hai.
+2. **Group + group subtotal** — Packages (`Deliverables`, `Pre Wedding`, `Wedding Day`) ke andar items. PicDeck mein abhi flat list hai.
+3. **Blank = hide** rule — har optional field PDF se gayab ho jati hai, placeholder nahi chhodta.
+4. **Event dates strip** — PicDeck ka `functions[]` already yahi karta hai, par CamTom ka `{date, name, desc}` (desc ke saath) zyada flexible hai.
+5. **Advance/Balance** — PicDeck ke paas abhi sirf `status: PAID` hai, partial payment model nahi.
+6. **Payment receipt** alag document — advance milne par customer ko receipt.
+
+**Nahi lena:**
+1. Do alag collections (Quotations/Bills) — PicDeck ka `type` field behtar hai.
+2. Integer-only numbering — `INV-26-0001` better.
+3. Tax inclusive vs exclusive ka mixed behaviour — confusing hai, ek hi chuno.
+4. `miscellaneous` ko `base` ban jane dena jab items 0 hon — ye edge case bug jaisa hai.
+
+**Clear difference:** CamTom ka PDF **SUB TOTAL / tax / discount lines print nahi karta**, sirf TOTAL. Editor mein sab dikhta hai. PicDeck ka Blush Ivory design subtotal + discount print karta hai — ye jaan-boojh kar behtar hai (client ko transparency milti hai), par interview ka sawaal hai.
+
+---
+
+## 11. PicDeck invoice upgrade (interview ke baad — jo actually bana)
+
+Section 10 ke evidence par user ne ye faisle diye, aur wahi implement hua:
+
+| Sawaal | Faisla | Kahan bana |
+| --- | --- | --- |
+| Advance + balance | Haan, poora payment log | `InvoicePayment` model + `PaymentsEditor.tsx` |
+| Groups | Haan, group subtotal ke saath | `InvoiceItem.group` + `InvoiceSheet` grouping |
+| Pricing modes | Dono (item-wise + flat budget) | `Invoice.budgetMode/budgetAmount`, `computeTotals` |
+| Print par totals | Sirf **TOTAL → ADVANCE → BALANCE** | `InvoiceSheet` (subtotal/discount/tax print nahi) |
+| Numbering | Studio prefix + year + number | `User.invoicePrefix`, `formatInvoiceNumber` → `RF/2026/001` |
+| Terms | Studio default + per-invoice override | `User.invoiceTerms`, `Invoice.terms`, `resolveTerms` |
+| Functions | Naam + date + venue + description | `InvoiceFunction.desc`, `FunctionsEditor` 4th field |
+| Payment details | UPI + bank dono | Letterhead (already tha) |
+| Logo + signature | Dono print par | `InvoiceSheet` footer |
+| Quotation vs invoice | Same design, label badle | `type` field |
+| Client ko bhejna | WhatsApp par PDF/link | `WhatsAppShare.tsx` + `/i/[token]` |
+| Draft visibility | Sirf SENT/PAID par link | `isPubliclyVisible` guard |
+
+**CamTom se jo deliberately nahi liya:** GST/tax columns schema mein pade hain par `computeTotals` unhe chhoota hi nahi (TOTAL/sab 0 rakhta hai). Budget-mode ka tax-inclusive reverse calculation bhi nahi liya — budget amount hi final total hai.
+
+**Naya client-facing route:** `GET /i/<publicToken>` — token pehli baar `SENT`/`PAID` par mint hota hai (`newShareToken()`), draft par link 404 deta hai. Print view aur public view ek hi `InvoiceSheet` component use karte hain, isliye jo PDF studio ne dekha wahi client dekhta hai.
+
+**Verification (observed, local dev par):**
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (59 tests), `npm run build` — sab pass.
+- Naya document `RF/2026/002` bana (prefix settings se).
+- Editor save ne group + payment rows DB mein likhe (`InvoiceItem.group`, `InvoicePayment`).
+- Budget mode on karne par `subtotal = total = budgetAmount`.
+- Draft + token → 404; SENT + token → 200.
+- Public sheet screenshot/PDF: `picdeck-invoice-demo/20-blush-ivory-groups-advance.{png,pdf}`.

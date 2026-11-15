@@ -5,6 +5,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveInvoice, setInvoiceStatus, deleteInvoice } from "@/app/actions/invoices";
 import { FunctionsEditor } from "@/components/FunctionsEditor";
+import { WhatsAppShare } from "@/components/WhatsAppShare";
+import { computeTotals } from "@/lib/invoices";
 
 export type InvoiceRowData = {
   id: string;
@@ -12,38 +14,47 @@ export type InvoiceRowData = {
   type: string;
   status: string;
   clientName: string;
+  clientPhone: string | null;
   eventTitle: string | null;
   items: number;
   total: number;
+  advance: number;
+  publicToken: string | null;
   issuedAt: string;
 };
 
-type Line = { description: string; quantity: string; rate: string };
+type Line = { description: string; quantity: string; rate: string; group: string };
 
 const inr = (value: number) => `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
 
-const emptyLine = (): Line => ({ description: "", quantity: "1", rate: "" });
+const DEFAULT_GROUP = "Deliverables";
+
+const emptyLine = (): Line => ({ description: "", quantity: "1", rate: "", group: DEFAULT_GROUP });
 
 export function InvoiceComposer({ events }: { events: { id: string; title: string }[] }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<"INVOICE" | "QUOTATION">("INVOICE");
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [discount, setDiscount] = useState("0");
+  const [extra, setExtra] = useState("0");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
-  const subtotal = useMemo(
+  const totals = useMemo(
     () =>
-      lines.reduce((sum, line) => {
-        const quantity = Number(line.quantity) || 0;
-        const rate = Number(line.rate) || 0;
-        return sum + quantity * rate;
-      }, 0),
-    [lines],
+      computeTotals({
+        items: lines.map((line) => ({
+          description: line.description,
+          quantity: Number(line.quantity) || 0,
+          rate: Number(line.rate) || 0,
+        })),
+        discount: Number(discount) || 0,
+        extra: Number(extra) || 0,
+      }),
+    [lines, discount, extra],
   );
-  const total = Math.max(0, subtotal - (Number(discount) || 0));
 
   function submit(formData: FormData) {
     setMessage(null);
@@ -187,62 +198,78 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
 
           <div className="mt-2 space-y-2">
             {lines.map((line, index) => (
-              <div key={index} className="flex gap-2">
-                <input
-                  name="item_description"
-                  placeholder="Candid photography — day 1"
-                  value={line.description}
-                  onChange={(event) =>
-                    setLines((current) =>
-                      current.map((item, i) =>
-                        i === index ? { ...item, description: event.target.value } : item,
-                      ),
-                    )
-                  }
-                  className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
-                />
-                <input
-                  name="item_quantity"
-                  type="number"
-                  min={0}
-                  step="0.5"
-                  value={line.quantity}
-                  onChange={(event) =>
-                    setLines((current) =>
-                      current.map((item, i) =>
-                        i === index ? { ...item, quantity: event.target.value } : item,
-                      ),
-                    )
-                  }
-                  className="w-16 rounded-lg border border-line px-2 py-2 text-right text-sm focus:border-brand focus:outline-none"
-                  aria-label="Quantity"
-                />
-                <input
-                  name="item_rate"
-                  type="number"
-                  min={0}
-                  placeholder="Rate"
-                  value={line.rate}
-                  onChange={(event) =>
-                    setLines((current) =>
-                      current.map((item, i) =>
-                        i === index ? { ...item, rate: event.target.value } : item,
-                      ),
-                    )
-                  }
-                  className="w-24 rounded-lg border border-line px-2 py-2 text-right text-sm focus:border-brand focus:outline-none"
-                  aria-label="Rate"
-                />
-                {lines.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setLines((current) => current.filter((_, i) => i !== index))}
-                    className="px-1 text-xs text-muted hover:text-red-600"
-                    aria-label="Remove line"
-                  >
-                    ×
-                  </button>
-                )}
+              <div key={index} className="rounded-lg border border-line p-2">
+                <div className="flex gap-2">
+                  <input
+                    name="item_group"
+                    placeholder={DEFAULT_GROUP}
+                    value={line.group}
+                    onChange={(event) =>
+                      setLines((current) =>
+                        current.map((item, i) =>
+                          i === index ? { ...item, group: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="w-32 rounded-lg border border-line px-2 py-2 text-sm focus:border-brand focus:outline-none"
+                    aria-label="Item group"
+                  />
+                  <input
+                    name="item_description"
+                    placeholder="Candid photography — day 1"
+                    value={line.description}
+                    onChange={(event) =>
+                      setLines((current) =>
+                        current.map((item, i) =>
+                          i === index ? { ...item, description: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                  />
+                  <input
+                    name="item_quantity"
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    value={line.quantity}
+                    onChange={(event) =>
+                      setLines((current) =>
+                        current.map((item, i) =>
+                          i === index ? { ...item, quantity: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="w-16 rounded-lg border border-line px-2 py-2 text-right text-sm focus:border-brand focus:outline-none"
+                    aria-label="Quantity"
+                  />
+                  <input
+                    name="item_rate"
+                    type="number"
+                    min={0}
+                    placeholder="Rate"
+                    value={line.rate}
+                    onChange={(event) =>
+                      setLines((current) =>
+                        current.map((item, i) =>
+                          i === index ? { ...item, rate: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="w-24 rounded-lg border border-line px-2 py-2 text-right text-sm focus:border-brand focus:outline-none"
+                    aria-label="Rate"
+                  />
+                  {lines.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setLines((current) => current.filter((_, i) => i !== index))}
+                      className="px-1 text-xs text-muted hover:text-red-600"
+                      aria-label="Remove line"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -257,6 +284,17 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
               min={0}
               value={discount}
               onChange={(event) => setDiscount(event.target.value)}
+              className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium">Extra charges (₹)</span>
+            <input
+              name="extra"
+              type="number"
+              min={0}
+              value={extra}
+              onChange={(event) => setExtra(event.target.value)}
               className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
             />
           </label>
@@ -277,7 +315,7 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
         <div className="space-y-1 rounded-lg bg-surface px-4 py-3 text-sm">
           <div className="flex justify-between">
             <span className="text-muted">Subtotal</span>
-            <span className="tabular-nums">{inr(subtotal)}</span>
+            <span className="tabular-nums">{inr(totals.subtotal)}</span>
           </div>
           {Number(discount) > 0 && (
             <div className="flex justify-between">
@@ -285,9 +323,15 @@ export function InvoiceComposer({ events }: { events: { id: string; title: strin
               <span className="tabular-nums">−{inr(Number(discount))}</span>
             </div>
           )}
+          {Number(extra) > 0 && (
+            <div className="flex justify-between">
+              <span className="text-muted">Extra charges</span>
+              <span className="tabular-nums">+{inr(Number(extra))}</span>
+            </div>
+          )}
           <div className="flex justify-between font-semibold">
             <span>Total</span>
-            <span className="tabular-nums">{inr(total)}</span>
+            <span className="tabular-nums">{inr(totals.total)}</span>
           </div>
         </div>
 
@@ -310,7 +354,13 @@ const STATUS_STYLES: Record<string, string> = {
   CANCELLED: "bg-red-50 text-red-700",
 };
 
-export function InvoiceList({ invoices }: { invoices: InvoiceRowData[] }) {
+export function InvoiceList({
+  invoices,
+  studioName,
+}: {
+  invoices: InvoiceRowData[];
+  studioName: string;
+}) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -346,7 +396,13 @@ export function InvoiceList({ invoices }: { invoices: InvoiceRowData[] }) {
             </div>
             <div className="text-right">
               <p className="font-semibold tabular-nums">{inr(invoice.total)}</p>
-              <p className="text-[11px] uppercase tracking-wide text-muted">{invoice.type}</p>
+              {invoice.advance > 0 ? (
+                <p className="text-[11px] text-muted">
+                  {inr(invoice.advance)} paid · {inr(Math.max(0, invoice.total - invoice.advance))} due
+                </p>
+              ) : (
+                <p className="text-[11px] uppercase tracking-wide text-muted">{invoice.type}</p>
+              )}
             </div>
           </div>
 
@@ -363,6 +419,26 @@ export function InvoiceList({ invoices }: { invoices: InvoiceRowData[] }) {
             >
               Print
             </Link>
+            <WhatsAppShare
+              invoiceId={invoice.id}
+              number={invoice.number}
+              type={invoice.type}
+              status={invoice.status}
+              clientName={invoice.clientName}
+              clientPhone={invoice.clientPhone}
+              studioName={studioName}
+              token={invoice.publicToken}
+            />
+            {invoice.publicToken && (invoice.status === "SENT" || invoice.status === "PAID") && (
+              <a
+                href={`/i/${invoice.publicToken}`}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-line px-2.5 py-1 font-medium hover:bg-surface"
+              >
+                Client link
+              </a>
+            )}
             {(["SENT", "PAID", "CANCELLED"] as const)
               .filter((status) => status !== invoice.status)
               .map((status) => (

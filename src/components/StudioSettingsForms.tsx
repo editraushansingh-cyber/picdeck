@@ -11,6 +11,8 @@ export function BrandingForm({
   upiId,
   bankAccount,
   ifsc,
+  invoicePrefix,
+  invoiceTerms,
 }: {
   watermarkText: string | null;
   logoUrl: string | null;
@@ -18,6 +20,8 @@ export function BrandingForm({
   upiId: string | null;
   bankAccount: string | null;
   ifsc: string | null;
+  invoicePrefix: string | null;
+  invoiceTerms: string[];
 }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +149,41 @@ export function BrandingForm({
         <p className="mt-2 text-xs text-muted">
           Leave a field empty to hide it. No GST number is printed.
         </p>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-medium">Invoice numbering &amp; terms</h3>
+        <p className="mt-1 text-sm text-muted">
+          Numbers follow <span className="font-mono">PREFIX/YEAR/001</span> and restart every January.
+        </p>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm">
+            <span className="font-medium">Number prefix</span>
+            <input
+              name="invoicePrefix"
+              defaultValue={invoicePrefix ?? ""}
+              maxLength={3}
+              placeholder="RS"
+              className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm uppercase focus:border-brand focus:outline-none"
+            />
+            <span className="mt-1 block text-xs text-muted">
+              2–3 letters. Empty means <span className="font-mono">2026/001</span>.
+            </span>
+          </label>
+          <label className="text-sm">
+            <span className="font-medium">Default terms</span>
+            <textarea
+              name="invoiceTerms"
+              rows={5}
+              defaultValue={invoiceTerms.join("\n")}
+              placeholder={"50% advance to confirm the date\nBalance on delivery\nTravel outside city billed separately"}
+              className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm focus:border-brand focus:outline-none"
+            />
+            <span className="mt-1 block text-xs text-muted">
+              One line per term. Printed on invoices that do not override them.
+            </span>
+          </label>
+        </div>
       </div>
 
       <button

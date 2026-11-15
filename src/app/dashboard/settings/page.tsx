@@ -10,6 +10,7 @@ import { driveConnected, oauthConfigured, redirectUri } from "@/lib/drive";
 import { mailConfigured } from "@/lib/mail";
 import { BrandingForm, DomainForm } from "@/components/StudioSettingsForms";
 import { DriveSettings } from "@/components/DriveSettings";
+import { parseTerms } from "@/lib/invoices";
 
 export const metadata: Metadata = { title: "Studio settings — PicDeck" };
 export const instant = false;
@@ -85,6 +86,8 @@ export default async function SettingsPage({
         upiId={user.upiId}
         bankAccount={user.bankAccount}
         ifsc={user.ifsc}
+        invoicePrefix={user.invoicePrefix}
+        invoiceTerms={parseTerms(user.invoiceTerms)}
       />
 
       <DomainForm

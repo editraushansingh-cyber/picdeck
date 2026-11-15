@@ -251,6 +251,13 @@
   white-space: nowrap;
 }
 
+.pd-fn-desc {
+  margin: 3px 0 0;
+  font-size: 6.6px;
+  line-height: 1.5;
+  color: var(--pd-muted);
+}
+
 /* 6–8 functions: balanced rows of three or four instead of 5 cards + orphans.
    Five or fewer keeps the base five-column rhythm. */
 .pd-functions.cols-3 {
@@ -356,12 +363,53 @@
   width: 100px;
 }
 
+/* Group headings: one label row before each package, then its items, then the
+   group subtotal. A single-group invoice skips the subtotal rows entirely. */
+.pd-group-head th {
+  padding: 10px 0 4px;
+  border-bottom: 1px solid #e8d9c6;
+  font-size: 6.4px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--pd-gold);
+}
+
+.pd-group:first-child .pd-group-head th {
+  padding-top: 2px;
+}
+
+.pd-group-sub td {
+  padding: 5px 0 6px;
+  border-bottom: 1px solid #f4ebe1;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: right;
+  color: var(--pd-muted);
+}
+.pd-group-sub td.num {
+  padding-left: 10px;
+  color: #3a302c;
+  white-space: nowrap;
+}
+
 /* ── payment + totals ────────────────────────────────────────────────────── */
 .pd-pay {
   display: flex;
   align-items: flex-start;
   gap: 14px;
   margin-top: 15px;
+}
+
+/* No UPI or bank on file: the totals block takes the full width instead of
+   sitting next to an empty card. */
+.pd-pay-narrow {
+  justify-content: flex-end;
+}
+.pd-pay-narrow .pd-totals {
+  width: 100%;
 }
 
 .pd-bank {
@@ -441,6 +489,77 @@
   font-weight: 600;
   letter-spacing: -0.01em;
   color: #fffdf8;
+}
+
+/* Print shows only TOTAL → ADVANCE → BALANCE. The subtotal, discount and extra
+   lines stay in the editor; the client sees the three numbers that matter. */
+.pd-totals .pd-total-bar:first-child {
+  margin-top: 0;
+}
+
+.pd-totals .pd-balance {
+  margin-top: 2px;
+  padding-top: 7px;
+  border-top: 1px solid var(--pd-line-soft);
+  font-size: 10px;
+  font-weight: 600;
+}
+.pd-totals .pd-balance span:first-child {
+  color: #4a3f39;
+}
+.pd-totals .pd-balance span:last-child {
+  color: var(--pd-ink);
+}
+
+/* ── payment log + terms ─────────────────────────────────────────────────── */
+.pd-payments,
+.pd-terms {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--pd-line-soft);
+}
+
+.pd-payments ul,
+.pd-terms ol {
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pd-payments li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 8.8px;
+  color: #4a3f39;
+}
+.pd-payments li .num {
+  min-width: 68px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pd-payments li .muted {
+  color: var(--pd-faint);
+}
+
+.pd-terms ol {
+  counter-reset: pd-term;
+}
+.pd-terms li {
+  position: relative;
+  padding: 2.5px 0 2.5px 15px;
+  font-size: 8.6px;
+  line-height: 1.6;
+  color: var(--pd-muted);
+  counter-increment: pd-term;
+}
+.pd-terms li::before {
+  position: absolute;
+  left: 0;
+  content: counter(pd-term) ".";
+  font-weight: 600;
+  color: var(--pd-faint);
 }
 
 /* ── amount in words + notes ─────────────────────────────────────────────── */

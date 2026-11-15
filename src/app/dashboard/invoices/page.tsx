@@ -37,9 +37,12 @@ export default async function InvoicesPage() {
     type: invoice.type,
     status: invoice.status,
     clientName: invoice.clientName,
+    clientPhone: invoice.clientPhone,
     eventTitle: invoice.event?.title ?? null,
     items: invoice._count.items,
     total: invoice.total,
+    advance: invoice.advance,
+    publicToken: invoice.publicToken,
     issuedAt: invoice.issuedAt.toLocaleDateString("en-IN", {
       day: "numeric",
       month: "short",
@@ -47,10 +50,11 @@ export default async function InvoicesPage() {
     }),
   }));
 
-  const paid = invoices.filter((i) => i.status === "PAID").reduce((sum, i) => sum + i.total, 0);
+  // Collected means money actually received (the payment log), not invoice totals.
+  const paid = invoices.reduce((sum, i) => sum + i.advance, 0);
   const open = invoices
     .filter((i) => i.status === "SENT" || i.status === "DRAFT")
-    .reduce((sum, i) => sum + i.total, 0);
+    .reduce((sum, i) => sum + Math.max(0, i.total - i.advance), 0);
 
   return (
     <div>
@@ -63,7 +67,7 @@ export default async function InvoicesPage() {
         <InvoiceComposer events={events} />
         <div>
           <h2 className="mb-3 font-medium">Saved documents</h2>
-          <InvoiceList invoices={rows} />
+          <InvoiceList invoices={rows} studioName={user.name} />
         </div>
       </div>
     </div>

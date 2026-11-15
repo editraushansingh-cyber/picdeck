@@ -29,9 +29,33 @@ export async function saveBranding(formData: FormData) {
   const bankAccount = String(formData.get("bankAccount") || "").trim().slice(0, 40) || null;
   const ifsc = String(formData.get("ifsc") || "").trim().toUpperCase().slice(0, 15) || null;
 
+  // Invoice numbering prefix: 2–3 letters, no digits-only (a year already follows it).
+  const rawPrefix = String(formData.get("invoicePrefix") || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  const invoicePrefix = rawPrefix ? rawPrefix.slice(0, 3) : null;
+
+  // Studio-wide default terms, one line per entry, printed on every invoice
+  // that does not override them.
+  const invoiceTerms = String(formData.get("invoiceTerms") || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim().slice(0, 200))
+    .filter((line) => line.length > 0)
+    .slice(0, 12);
+
   await prisma.user.update({
     where: { id: user.id },
-    data: { watermarkText, logoPath, website, upiId, bankAccount, ifsc },
+    data: {
+      watermarkText,
+      logoPath,
+      website,
+      upiId,
+      bankAccount,
+      ifsc,
+      invoicePrefix,
+      invoiceTerms: JSON.stringify(invoiceTerms),
+    },
   });
 
   revalidatePath("/dashboard/settings");

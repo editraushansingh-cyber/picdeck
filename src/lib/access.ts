@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { activeSubscription } from "./plans";
 import { moduleAllowed, tierOf, type ModuleKey, type PlanTier } from "./modules";
+import { formatInvoiceNumber } from "./invoices";
 
 export type Access = {
   planSlug: string | null;
@@ -31,9 +32,31 @@ export async function requireModule(userId: string, module: ModuleKey, label: st
   return { ok: true as const, access };
 }
 
-export async function nextInvoiceNumber(userId: string, type: "INVOICE" | "QUOTATION") {
-  const prefix = type === "INVOICE" ? "INV" : "QUO";
-  const count = await prisma.invoice.count({ where: { userId, type } });
-  const year = new Date().getFullYear().toString().slice(-2);
-  return `${prefix}-${year}-${String(count + 1).padStart(4, "0")}`;
+export async function nextInvoiceNumber(userId: string) {
+  const year = new Date().getFullYear();
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { invoicePrefix: true },
+  });
+
+  // One document register per studio per year: quotations and invoices draw
+  // from the same counter, so a number is never reused across document types.
+  const yearStart = new Date(year, 0, 1);
+  const used = await prisma.invoice.count({
+    where: { userId, createdAt: { gte: yearStart } },
+  });
+
+  const build = (sequence: number) =>
+    formatInvoiceNumber({ prefix: user?.invoicePrefix ?? null, year, sequence });
+
+  // Hand-edited numbers can collide; walk forward until the row is free.
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const candidate = build(used + 1 + attempt);
+    const clash = await prisma.invoice.findUnique({
+      where: { number: candidate },
+      select: { id: true },
+    });
+    if (!clash) return candidate;
+  }
+  return build(used + 51);
 }

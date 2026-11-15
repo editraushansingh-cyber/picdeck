@@ -33,6 +33,10 @@ model User {
   bankAccount     String?
   /** IFSC code that goes with the account above. */
   ifsc            String?
+  /** 2–3 letter studio prefix used for invoice numbers, e.g. "RS" → RS/2026/001. */
+  invoicePrefix   String?
+  /** Studio-wide default terms, one line per entry. JSON array of strings. */
+  invoiceTerms    String    @default("[]")
   referralCode    String    @unique
   /** Short code behind the "all events in one QR" studio page. */
   studioCode      String?   @unique
@@ -317,18 +321,47 @@ model Invoice {
   clientPhone String?
   clientAddress String?
   notes       String?
-  /** JSON array of the wedding functions printed on the invoice: [{name, date, venue}]. */
+  /** JSON array of the wedding functions printed on the invoice: [{name, date, venue, desc}]. */
   functions   String   @default("[]")
+  /** JSON array of terms lines, one per entry. Empty falls back to the studio default. */
+  terms       String   @default("[]")
+  /** Budget mode: a flat total is typed instead of item-wise pricing. */
+  budgetMode  Boolean  @default(false)
+  /** The flat total used when `budgetMode` is on. */
+  budgetAmount Float   @default(0)
   taxRate     Float    @default(0)
   discount    Float    @default(0)
+  /** Extra charges added after tax, e.g. travel or album courier. */
+  extra       Float    @default(0)
   subtotal    Float    @default(0)
   taxAmount   Float    @default(0)
   total       Float    @default(0)
+  /** Total of everything in `payments`. Kept on the row so lists stay one query. */
+  advance     Float    @default(0)
+  /** Draft quotes stay private; a public link only resolves once SENT or PAID. */
+  shareable   Boolean  @default(true)
+  /** Unguessable slug behind the client-facing invoice link. */
+  publicToken String?  @unique
   createdAt   DateTime @default(now())
 
   items InvoiceItem[]
+  payments InvoicePayment[]
 
   @@index([userId, createdAt])
+}
+
+model InvoicePayment {
+  id        String   @id @default(cuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount    Float    @default(0)
+  paidAt    DateTime @default(now())
+  /** CASH | UPI | CARD | BANK */
+  mode      String   @default("UPI")
+  note      String?
+  position  Int      @default(0)
+
+  @@index([invoiceId, position])
 }
 
 model InvoiceItem {
@@ -339,6 +372,8 @@ model InvoiceItem {
   quantity    Float   @default(1)
   rate        Float   @default(0)
   amount      Float   @default(0)
+  /** Heading this item prints under, e.g. "Deliverables" or "Pre-wedding". */
+  group       String  @default("Deliverables")
   position    Int     @default(0)
 
   @@index([invoiceId, position])
