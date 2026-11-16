@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && node scripts/db-migrate-if-configured.mjs && next build",
+    "dev:local": "node scripts/dev-local.mjs",
+    "db:local": "node scripts/dev-local.mjs --push",
+    "session": "node scripts/dev-session.mjs",
+    "build": "node scripts/assert-postgres-schema.mjs && prisma generate && node scripts/db-migrate-if-configured.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",

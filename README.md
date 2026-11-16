@@ -30,13 +30,26 @@ Blueprints and the gating matrix: `docs/picdeck-full-suite-design.md`.
 
 ## Run it
 
+The committed schema targets PostgreSQL (what production runs). For local SQLite dev,
+don't edit the provider — use the scripts, which swap it for a moment and restore it:
+
 ```bash
 npm install
-npx prisma migrate dev        # creates prisma/dev.db
+npm run db:local              # creates/syncs prisma/dev.db (SQLite)
 npm run db:seed               # inserts Free, Basic / Silver / Gold, All-Access, Album and AI plans
 npm run db:demo               # optional: demo studio on Gold with sample everything
-npm run dev                   # http://localhost:3000
+npm run dev:local             # http://localhost:3000
 ```
+
+Handy while developing:
+
+```bash
+npm run --silent session -- demo@picdeck.local   # prints a valid picdeck_session cookie
+npm run build                                     # fails if the schema is left on sqlite
+```
+
+Full agent handover — env locations, login without tokens, migrations, deploy and the
+invoice spec: `docs/codex-handover.md`.
 
 `.env`:
 

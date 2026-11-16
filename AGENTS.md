@@ -7,3 +7,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Project handover
+
+Before working on this repo, read `docs/codex-handover.md`. It covers the local dev
+workflow (`npm run dev:local`), how to get a session cookie without asking for tokens,
+where env values live, the migration/deploy flow, and the full invoice specification.

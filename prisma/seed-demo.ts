@@ -210,6 +210,17 @@ async function uniqueCode() {
 }
 
 async function main() {
+  // The demo seed must be re-runnable even when another studio already grabbed
+  // the short demo codes (a fresh dev DB often reuses them).
+  const codeClash = await prisma.user.findFirst({
+    where: { referralCode: "DEMO01", NOT: { email: DEMO_EMAIL } },
+    select: { id: true },
+  });
+  const studioClash = await prisma.user.findFirst({
+    where: { studioCode: "demo-studio", NOT: { email: DEMO_EMAIL } },
+    select: { id: true },
+  });
+
   const user = await prisma.user.upsert({
     where: { email: DEMO_EMAIL },
     update: { name: "Demo Studio" },
@@ -220,7 +231,7 @@ async function main() {
       passwordHash: "demo-not-a-real-password",
       profession: "photographer",
       city: "Jaipur",
-      referralCode: "DEMO01",
+      referralCode: codeClash ? "DEMO02" : "DEMO01",
       phoneVerifiedAt: new Date(),
     },
   });
@@ -239,9 +250,16 @@ async function main() {
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      studioCode: "demo-studio",
+      studioCode: studioClash ? "demo-studio-2" : "demo-studio",
       watermarkText: "Demo Studio · proof",
       logoPath: path.posix.join("sites", user.id, "logo.png"),
+      // Invoice numbering/letterhead the demo can show without extra setup.
+      invoicePrefix: "DS",
+      invoiceTerms: JSON.stringify([
+        "50% advance to confirm the date",
+        "Balance due on delivery of the album",
+        "Travel outside Jaipur billed separately",
+      ]),
     },
   });
 
@@ -348,7 +366,12 @@ async function main() {
     await fs.rm(path.join(ROOT, "albums", oldAlbum.id), { recursive: true, force: true });
   }
   await prisma.album.deleteMany({ where: { userId: user.id } });
+  // A previous studio in the same dev DB may still hold the demo slugs; slugs are
+  // globally unique, so clear those rows before re-creating them.
+  await prisma.album.deleteMany({ where: { slug: "demo-reception-album", NOT: { userId: user.id } } });
+  await prisma.invitation.deleteMany({ where: { slug: "demo-ananya-rohan", NOT: { userId: user.id } } });
   await prisma.studioSite.deleteMany({ where: { userId: user.id } });
+  await prisma.studioSite.deleteMany({ where: { slug: "demo-studio", NOT: { userId: user.id } } });
 
   const first = created[0];
   if (first) {
@@ -398,7 +421,7 @@ async function main() {
       data: {
         userId: user.id,
         eventId: first.id,
-        number: "INV-26-0001",
+        number: "DS/2026/001",
         type: "INVOICE",
         status: "SENT",
         dueAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -406,15 +429,61 @@ async function main() {
         clientPhone: first.phone,
         clientEmail: "client@example.com",
         notes: "50% advance confirms the date. Balance before delivery.",
-        taxRate: 18,
+        functions: JSON.stringify([
+          { name: "Haldi", date: "18 Nov 2026", venue: "Bani Park", desc: "Morning, marigold theme" },
+          { name: "Wedding", date: "19 Nov 2026", venue: "Rambagh", desc: "Baraat 7 pm" },
+          { name: "Reception", date: "20 Nov 2026", venue: "The Leela Palace", desc: "" },
+        ]),
+        terms: JSON.stringify([
+          "50% advance to confirm the date",
+          "Balance due on delivery of the album",
+        ]),
         discount: 2000,
+        extra: 0,
+        budgetMode: false,
+        budgetAmount: 0,
         subtotal: 120000,
-        taxAmount: 21240,
-        total: 139240,
+        taxRate: 0,
+        taxAmount: 0,
+        total: 118000,
+        advance: 60000,
+        publicToken: "demo-invoice-link-token",
         items: {
           create: [
-            { description: "Reception coverage — 2 shooters", quantity: 2, rate: 45000, amount: 90000, position: 0 },
-            { description: "Edited album (30 spreads)", quantity: 1, rate: 30000, amount: 30000, position: 1 },
+            {
+              description: "Reception coverage — 2 shooters",
+              quantity: 2,
+              rate: 45000,
+              amount: 90000,
+              group: "Wedding coverage",
+              position: 0,
+            },
+            {
+              description: "Edited album (30 spreads)",
+              quantity: 1,
+              rate: 30000,
+              amount: 30000,
+              group: "Deliverables",
+              position: 1,
+            },
+          ],
+        },
+        payments: {
+          create: [
+            {
+              amount: 40000,
+              paidAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+              mode: "UPI",
+              note: "Booking advance",
+              position: 0,
+            },
+            {
+              amount: 20000,
+              paidAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+              mode: "CASH",
+              note: "Second instalment",
+              position: 1,
+            },
           ],
         },
       },
