@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { consentUrl, oauthConfigured } from "@/lib/drive";
 import {
-  createDriveState,
+  beginDriveOAuth,
   requestBase,
   settingsRedirect,
-  stateCookie,
 } from "@/lib/drive-state";
 
 /**
@@ -21,8 +20,6 @@ export async function GET(request: Request) {
     return settingsRedirect(base, { drive: "not_configured" });
   }
 
-  const state = createDriveState(user.id);
-  const response = NextResponse.redirect(consentUrl(state));
-  response.cookies.set(stateCookie(state));
-  return response;
+  const state = await beginDriveOAuth(user.id);
+  return NextResponse.redirect(consentUrl(state));
 }

@@ -1,16 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createDriveState, callbackStateUser } from "./drive-state";
+import { createDriveState, driveStateHash } from "./drive-state";
 
-describe("callbackStateUser", () => {
-  it("accepts the signed callback state for the active studio without relying on a browser state cookie", () => {
-    const state = createDriveState("studio-a");
+describe("database-backed Drive state", () => {
+  it("creates an opaque state value with a stable server-side hash", () => {
+    const state = createDriveState();
 
-    expect(callbackStateUser(state, "studio-a")).toBe("studio-a");
-  });
-
-  it("rejects a valid state when it belongs to another signed-in studio", () => {
-    const state = createDriveState("studio-a");
-
-    expect(callbackStateUser(state, "studio-b")).toBeNull();
+    expect(state).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+    expect(driveStateHash(state)).toMatch(/^[a-f0-9]{64}$/);
+    expect(driveStateHash(state)).toBe(driveStateHash(state));
   });
 });

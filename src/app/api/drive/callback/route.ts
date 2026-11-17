@@ -1,7 +1,6 @@
-import { getUserId } from "@/lib/auth";
 import { exchangeCode, oauthConfigured, saveDriveLink } from "@/lib/drive";
 import {
-  callbackStateUser,
+  consumeDriveOAuth,
   DRIVE_STATE_COOKIE,
   requestBase,
   settingsRedirect,
@@ -28,11 +27,9 @@ export async function GET(request: Request) {
   if (!code) return finish({ drive: "missing_code" });
   if (!oauthConfigured()) return finish({ drive: "not_configured" });
 
-  const userId = await getUserId();
-  const stateUserId = callbackStateUser(state, userId);
+  const stateUserId = await consumeDriveOAuth(state);
   if (!stateUserId) {
-    // The signed state must belong to the active studio; never attach a Drive
-    // account just because a callback URL reached this endpoint.
+    // State is opaque, stored server-side, expires quickly, and is single-use.
     return finish({ drive: "state_mismatch" });
   }
 
