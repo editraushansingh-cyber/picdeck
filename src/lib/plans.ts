@@ -233,16 +233,21 @@ export function planBySlug(slug: string) {
   return ALL_PLANS.find((plan) => plan.slug === slug) ?? null;
 }
 
-export const TRIAL_DAYS = 14;
+export function isSubscriptionActive(
+  subscription: { endsAt: Date | null },
+  now = new Date(),
+) {
+  return subscription.endsAt === null || subscription.endsAt > now;
+}
 
-/** Returns the user's active Photo Selection subscription (paid or trial), or null. */
+/** Returns the user's active subscription, including an ongoing Free plan. */
 export async function activeSubscription(userId: string) {
   const { prisma } = await import("./db");
   return prisma.subscription.findFirst({
     where: {
       userId,
       status: { in: ["ACTIVE", "TRIAL"] },
-      endsAt: { gt: new Date() },
+      OR: [{ endsAt: null }, { endsAt: { gt: new Date() } }],
     },
     include: { plan: true },
     orderBy: { endsAt: "desc" },

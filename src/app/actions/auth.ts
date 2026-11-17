@@ -3,7 +3,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { createSession, hashPassword, randomReferralCode } from "@/lib/auth";
-import { TRIAL_DAYS } from "@/lib/plans";
 import { grantReferralCredit } from "@/lib/referrals";
 
 function normalizePhone(countryCode: string, raw: string) {
@@ -72,14 +71,13 @@ export async function registerUser(formData: FormData) {
     },
   });
 
-  // Start on the Free plan; paid plans are assigned by the admin or checkout.
+  // Start on the ongoing Free plan; paid plans are assigned by the admin or checkout.
   const freePlan = await prisma.plan.findUnique({ where: { slug: "free" } });
   if (freePlan) {
     await prisma.subscription.create({
       data: {
         userId: user.id,
         planId: freePlan.id,
-        endsAt: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
         status: "ACTIVE",
       },
     });

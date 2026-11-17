@@ -3,6 +3,12 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import {
+  UPLOAD_QUALITY_OPTIONS,
+  type UploadQuality,
+  qualityForUpload,
+  shouldCompressUpload,
+} from "@/lib/upload-quality";
 
 const MAX_MB = 25;
 /** Per-chunk byte size for the proxied upload (~3 MB keeps far under Vercel's body limit). */
@@ -20,9 +26,41 @@ export function UploadDropzone({ eventId, driveConnected, driveRequired }: Props
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [activity, setActivity] = useState<string | null>(null);
+  const [uploadQuality, setUploadQuality] = useState<UploadQuality>("original");
   const [errors, setErrors] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+
+  async function prepareForUpload(file: File): Promise<{ file: File; warning?: string }> {
+    const quality = qualityForUpload(uploadQuality);
+    if (quality === null || !shouldCompressUpload(uploadQuality, file.name)) return { file };
+
+    try {
+      const image = await createImageBitmap(file);
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas is unavailable");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0);
+      image.close();
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+      if (!blob) throw new Error("Browser could not create a JPEG");
+      const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
+      return {
+        file: new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: file.lastModified }),
+      };
+    } catch {
+      return {
+        file,
+        warning: `${file.name}: couldn’t be compressed in this browser, so the original was uploaded`,
+      };
+    }
+  }
 
   /**
    * Upload one file to Google Drive. The browser starts a resumable session via
@@ -128,22 +166,36 @@ export function UploadDropzone({ eventId, driveConnected, driveRequired }: Props
     const collected: string[] = [];
     if (driveConnected) {
       for (let index = 0; index < files.length; index += 1) {
-        const file = files[index];
+        const source = files[index];
         try {
+          setActivity(`Preparing ${index + 1} of ${files.length}…`);
+          const prepared = await prepareForUpload(source);
+          if (prepared.warning) collected.push(prepared.warning);
+          setActivity(`Uploading ${index + 1} of ${files.length} to Google Drive…`);
+          const file = prepared.file;
           const error = await uploadToDrive(file);
           if (error) collected.push(error);
         } catch {
-          collected.push(`${file.name}: network error — please retry`);
+          collected.push(`${source.name}: network error — please retry`);
         }
         setProgress({ done: index + 1, total: files.length });
       }
     } else {
-      collected.push(...(await uploadThroughProxy(files)));
+      const preparedFiles: File[] = [];
+      for (let index = 0; index < files.length; index += 1) {
+        setActivity(`Preparing ${index + 1} of ${files.length}…`);
+        const prepared = await prepareForUpload(files[index]);
+        preparedFiles.push(prepared.file);
+        if (prepared.warning) collected.push(prepared.warning);
+      }
+      setActivity("Uploading photos…");
+      collected.push(...(await uploadThroughProxy(preparedFiles)));
     }
 
     setErrors(collected);
     setBusy(false);
     setProgress({ done: 0, total: 0 });
+    setActivity(null);
     if (inputRef.current) inputRef.current.value = "";
     router.refresh();
   }
@@ -202,8 +254,30 @@ export function UploadDropzone({ eventId, driveConnected, driveRequired }: Props
           </>
         ) : (
           <>
-            <p className="text-sm font-medium">
-              {busy ? "Uploading…" : "Drop photos here, or choose files"}
+            <div className="mx-auto max-w-md text-left">
+              <label htmlFor="upload-quality" className="text-sm font-medium">
+                Save uploaded photos as
+              </label>
+              <select
+                id="upload-quality"
+                value={uploadQuality}
+                disabled={busy}
+                onChange={(event) => setUploadQuality(event.target.value as UploadQuality)}
+                className="mt-1.5 w-full rounded-lg border border-line bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none disabled:opacity-50"
+              >
+                {UPLOAD_QUALITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} — {option.description}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs text-muted">
+                Compression creates a JPEG before upload. RAW and unsupported files stay original;
+                file-size savings vary by image.
+              </p>
+            </div>
+            <p className="mt-5 text-sm font-medium">
+              {busy ? activity ?? "Uploading…" : "Drop photos here, or choose files"}
             </p>
             <p className="mt-1.5 text-xs text-muted">
               JPEG, PNG, WebP, HEIC, TIFF and common RAW files. Up to {MAX_MB} MB each.{" "}

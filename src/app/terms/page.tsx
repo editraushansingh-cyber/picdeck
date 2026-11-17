@@ -39,9 +39,9 @@ const sections = [
     ],
   },
   {
-    heading: "5. Plans and trial",
+    heading: "5. Plans",
     body: [
-      "New accounts start a 14-day trial of the Photo Selection product. The trial does not require a payment method.",
+      "New accounts start on the Free plan. A payment method is not required to create an account.",
       "Paid plans are monthly, half-yearly or yearly. Prices are shown on the Plans page in Indian Rupees and may change for future billing periods.",
       "This build does not process payments. If no active plan remains, galleries stop accepting new selections; existing files are not deleted automatically.",
     ],

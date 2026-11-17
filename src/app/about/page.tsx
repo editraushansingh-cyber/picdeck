@@ -60,8 +60,8 @@ export default async function AboutPage() {
             <p className="mt-2">
               PicDeck currently ships the Photo Selection module only. AI face search, printed
               flipbooks, invoicing and custom websites are separate products and are not part of
-              this application. Payment collection is also not wired up: registration starts a
-              14-day trial, and plans exist so the feature gating is real rather than decorative.
+              this application. Payment collection is also not wired up: new studios begin on the
+              Free plan, and paid plans can be assigned by an administrator.
             </p>
           </div>
 
@@ -84,7 +84,7 @@ export default async function AboutPage() {
               href={user ? "/dashboard" : "/register"}
               className="mt-4 inline-block rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand/90"
             >
-              {user ? "Open dashboard" : "Start a free trial"}
+              {user ? "Open dashboard" : "Create an account"}
             </Link>
           </div>
         </section>

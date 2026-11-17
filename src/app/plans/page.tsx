@@ -15,7 +15,7 @@ import {
 export const metadata: Metadata = {
   title: "Plans — PicDeck",
   description:
-    "Start free, add album or AI face search when you need it, or take everything with All-Access at ₹1,999 a year.",
+    "Create your studio account, add album or AI face search when you need it, or take everything with All-Access at ₹1,999 a year.",
 };
 
 const headlinePlans: PlanSeed[] = [
@@ -47,7 +47,7 @@ const faqs = [
   {
     question: "What is actually free?",
     answer:
-      "One active event, selection galleries with 6-digit codes, invoices, invitations, your studio page and compressed client downloads. No card, no trial clock.",
+      "One active event, selection galleries with 6-digit codes, invoices, invitations, your studio page and compressed client downloads. No card required.",
   },
   {
     question: "Why are album and AI sold separately?",
@@ -134,7 +134,7 @@ function PlanCard({
             : "border border-line hover:bg-surface"
         }`}
       >
-        {plan.priceInr === 0 ? "Start free" : "Choose plan"}
+        {plan.priceInr === 0 ? "Create account" : "Choose plan"}
       </Link>
     </div>
   );
@@ -154,7 +154,7 @@ export default async function PlansPage() {
               The PicDeck studio suite
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-              Start free. Add what you actually use.
+              Start with the Free plan. Add what you actually use.
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-muted">
               Selection, invoices, invitations and your studio site are always included. Albums and
@@ -251,7 +251,7 @@ export default async function PlansPage() {
 
           <p className="mt-8 text-center text-xs text-muted">
             Prices in INR, inclusive of applicable taxes. Payment collection is not enabled in this
-            build — the trial starts immediately and a plan can be assigned by the admin.
+            build — new accounts begin on the Free plan and a paid plan can be assigned by the admin.
           </p>
         </section>
 

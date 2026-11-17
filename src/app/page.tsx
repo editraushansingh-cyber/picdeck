@@ -69,7 +69,7 @@ export default async function HomePage() {
                   href={user ? "/dashboard" : "/register"}
                   className="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand/90"
                 >
-                  {user ? "Open dashboard" : "Start free — 14 days"}
+                  {user ? "Open dashboard" : "Sign up"}
                 </Link>
                 <Link
                   href="/g"
@@ -79,7 +79,7 @@ export default async function HomePage() {
                 </Link>
               </div>
               <p className="mt-4 text-sm text-muted">
-                No card required. Your trial gallery stays yours if you stop.
+                Create your studio account and start with the Free plan.
               </p>
             </div>
 
@@ -330,7 +330,7 @@ export default async function HomePage() {
                 href="/register"
                 className="mt-7 inline-block rounded-lg bg-white px-5 py-3 text-sm font-semibold text-ink hover:bg-white/90"
               >
-                Create a free gallery
+                Create an account
               </Link>
             </div>
           </div>

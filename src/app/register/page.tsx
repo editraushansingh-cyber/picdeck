@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Create account — PicDeck",
-  description: "Verify your phone and open a studio account. Free trial, no card required.",
+  description: "Create a PicDeck studio account with your email and password.",
 };
 
 // This route reads the session cookie, event params or search params on every request.

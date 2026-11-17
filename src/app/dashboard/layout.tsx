@@ -28,8 +28,10 @@ export default async function DashboardLayout({ children }: LayoutProps<"/dashbo
           <div className="flex items-center gap-3 text-sm">
             {subscription ? (
               <span className="hidden rounded-full bg-brand-soft px-2.5 py-1 text-xs font-medium text-brand sm:inline">
-                {subscription.status === "TRIAL" ? "Trial" : subscription.plan.name} ·{" "}
-                {subscription.endsAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                {subscription.plan.name}
+                {subscription.endsAt
+                  ? ` · ${subscription.endsAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`
+                  : " · ongoing"}
               </span>
             ) : (
               <Link href="/plans" className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">

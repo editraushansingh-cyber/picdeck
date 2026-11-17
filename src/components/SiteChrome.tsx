@@ -31,7 +31,7 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
                 href="/register"
                 className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90"
               >
-                Start free
+                Sign up
               </Link>
             </>
           )}
