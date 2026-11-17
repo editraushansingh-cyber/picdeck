@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
  * crafted `state` cannot hijack another studio's connection.
  */
 const COOKIE = "pd_drive_state";
-const TTL_SECONDS = 600;
+const TTL_SECONDS = 15 * 60;
 
 function secret() {
   return process.env.AUTH_SECRET || "picdeck-dev-secret-change-me";
@@ -34,6 +34,20 @@ export function readDriveState(raw: string | undefined): string | null {
   if (!userId || !issuedAt) return null;
   if (Date.now() - Number(issuedAt) > TTL_SECONDS * 1000) return null;
   return userId;
+}
+
+/**
+ * Verifies the signed `state` value returned by Google belongs to the studio
+ * that is currently signed in. The callback must use this URL parameter—not
+ * only the browser cookie—because an OAuth redirect can return on a different
+ * host or after a browser has discarded its short-lived state cookie.
+ */
+export function callbackStateUser(
+  state: string | null | undefined,
+  currentUserId: string | null | undefined,
+): string | null {
+  const stateUserId = readDriveState(state ?? undefined);
+  return currentUserId && stateUserId === currentUserId ? stateUserId : null;
 }
 
 export const DRIVE_STATE_COOKIE = COOKIE;

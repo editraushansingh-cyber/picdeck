@@ -1,9 +1,8 @@
-import { cookies } from "next/headers";
 import { getUserId } from "@/lib/auth";
 import { exchangeCode, oauthConfigured, saveDriveLink } from "@/lib/drive";
 import {
+  callbackStateUser,
   DRIVE_STATE_COOKIE,
-  readDriveState,
   requestBase,
   settingsRedirect,
 } from "@/lib/drive-state";
@@ -16,6 +15,7 @@ export async function GET(request: Request) {
   const base = requestBase(request);
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
 
   const finish = (params: Record<string, string>) => {
@@ -29,10 +29,10 @@ export async function GET(request: Request) {
   if (!oauthConfigured()) return finish({ drive: "not_configured" });
 
   const userId = await getUserId();
-  const cookieStore = await cookies();
-  const stateUserId = readDriveState(cookieStore.get(DRIVE_STATE_COOKIE)?.value);
-  if (!userId || !stateUserId || stateUserId !== userId) {
-    // Mismatched or expired state: refuse rather than attach someone else's Drive.
+  const stateUserId = callbackStateUser(state, userId);
+  if (!stateUserId) {
+    // The signed state must belong to the active studio; never attach a Drive
+    // account just because a callback URL reached this endpoint.
     return finish({ drive: "state_mismatch" });
   }
 
@@ -45,7 +45,7 @@ export async function GET(request: Request) {
       .then((json: { email?: string } | null) => json?.email ?? null)
       .catch(() => null);
 
-    await saveDriveLink(userId, tokens, email);
+    await saveDriveLink(stateUserId, tokens, email);
     return finish({ drive: "connected" });
   } catch {
     return finish({ drive: "failed" });
