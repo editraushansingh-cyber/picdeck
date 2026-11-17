@@ -7,11 +7,17 @@ import { Logo } from "@/components/Logo";
 
 export function ForgotPasswordForm() {
   const [message, setMessage] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function submit(formData: FormData) {
     setMessage(null);
-    startTransition(async () => setMessage((await requestPasswordReset(formData)).message));
+    setFailed(false);
+    startTransition(async () => {
+      const result = await requestPasswordReset(formData);
+      setMessage(result.message);
+      setFailed(!result.ok);
+    });
   }
 
   return (
@@ -20,7 +26,7 @@ export function ForgotPasswordForm() {
       <div className="rounded-2xl border border-line p-6 sm:p-8">
         <h1 className="text-xl font-semibold tracking-tight">Reset your password</h1>
         <p className="mt-1.5 text-sm text-muted">Enter the email address used for your studio account.</p>
-        {message && <p className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</p>}
+        {message && <p className={`mt-5 rounded-lg border px-3 py-2 text-sm ${failed ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{message}</p>}
         <form action={submit} className="mt-6 space-y-4">
           <div>
             <label className="text-sm font-medium" htmlFor="email">Email</label>

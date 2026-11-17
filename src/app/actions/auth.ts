@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { createSession, hashPassword, randomReferralCode } from "@/lib/auth";
 import { grantReferralCredit } from "@/lib/referrals";
-import { sendEmail } from "@/lib/mail";
+import { mailConfigured, sendEmail } from "@/lib/mail";
 import {
   createPasswordResetToken,
   PASSWORD_RESET_TTL_MS,
@@ -116,6 +116,7 @@ export async function loginUser(formData: FormData) {
 }
 
 const RESET_REQUEST_MESSAGE = "If that email belongs to a PicDeck account and email delivery is available, a reset link will arrive shortly.";
+const RESET_UNAVAILABLE_MESSAGE = "Password-reset email is temporarily unavailable. Please try again later.";
 
 function appUrl() {
   return (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -123,6 +124,11 @@ function appUrl() {
 
 export async function requestPasswordReset(formData: FormData) {
   const email = String(formData.get("email") || "").trim().toLowerCase();
+  // This is safe to disclose: it is service-wide and reveals nothing about an
+  // individual email address or account.
+  if (!mailConfigured()) {
+    return { ok: false as const, message: RESET_UNAVAILABLE_MESSAGE };
+  }
   // Always give the same response so this endpoint cannot reveal account emails.
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return { ok: true as const, message: RESET_REQUEST_MESSAGE };
