@@ -61,6 +61,7 @@ model User {
   studioSite    StudioSite?
   driveLink     DriveLink?
   driveOAuthAttempts DriveOAuthAttempt[]
+  passwordResetTokens PasswordResetToken[]
   storageConn   StorageConnection?
 
   @@index([referredById])
@@ -99,6 +100,19 @@ model DriveOAuthAttempt {
   createdAt DateTime @default(now())
 
   @@index([expiresAt])
+}
+
+/** One-time, hashed links used to reset a studio account password. */
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 /**
